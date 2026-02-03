@@ -3,21 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { entriesAPI, householdAPI } from '@/lib/api';
+import { entriesAPI, householdAPI, accountsAPI, Entry, Account, EntryCreateData } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-
-type Entry = {
-  id: string;
-  type: string;
-  amount: number;
-  date: string;
-  category_id: string | null;
-  category_name: string | null;
-  memo: string | null;
-  payer_member_id: string;
-  payer_name: string | null;
-  shared: boolean;
-};
 
 type Category = {
   id: string;
@@ -36,6 +23,7 @@ export default function EntriesPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [month, setMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -47,13 +35,17 @@ export default function EntriesPage() {
   const { user, loading: authLoading } = useAuth();
 
   // Form state
-  const [formType, setFormType] = useState<'expense' | 'income'>('expense');
+  const [formType, setFormType] = useState<'expense' | 'income' | 'transfer'>('expense');
   const [formAmount, setFormAmount] = useState('');
   const [formDate, setFormDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [formTime, setFormTime] = useState('');
   const [formCategoryId, setFormCategoryId] = useState('');
   const [formMemo, setFormMemo] = useState('');
   const [formPayerMemberId, setFormPayerMemberId] = useState('');
   const [formShared, setFormShared] = useState(false);
+  const [formAccountId, setFormAccountId] = useState('');
+  const [formTransferFromAccountId, setFormTransferFromAccountId] = useState('');
+  const [formTransferToAccountId, setFormTransferToAccountId] = useState('');
   const [formError, setFormError] = useState('');
   const [formLoading, setFormLoading] = useState(false);
 
@@ -75,14 +67,16 @@ export default function EntriesPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [entriesData, categoriesData, membersData] = await Promise.all([
+        const [entriesData, categoriesData, membersData, accountsData] = await Promise.all([
           entriesAPI.list({ month }),
           entriesAPI.getCategories(),
           householdAPI.getMembers(),
+          accountsAPI.list(),
         ]);
         setEntries(entriesData);
         setCategories(categoriesData);
         setMembers(membersData);
+        setAccounts(accountsData);
 
         // Set default payer to current user
         const currentMember = membersData.find(m => m.user_id === user?.id);
@@ -109,9 +103,13 @@ export default function EntriesPage() {
     setFormType('expense');
     setFormAmount('');
     setFormDate(new Date().toISOString().split('T')[0]);
+    setFormTime('');
     setFormCategoryId('');
     setFormMemo('');
     setFormShared(false);
+    setFormAccountId('');
+    setFormTransferFromAccountId('');
+    setFormTransferToAccountId('');
     setFormError('');
     setEditingEntry(null);
     const currentMember = members.find(m => m.user_id === user?.id);
@@ -123,13 +121,22 @@ export default function EntriesPage() {
   const handleOpenForm = (entry?: Entry) => {
     if (entry) {
       setEditingEntry(entry);
-      setFormType(entry.type as 'expense' | 'income');
+      setFormType(entry.type as 'expense' | 'income' | 'transfer');
       setFormAmount(String(entry.amount));
       setFormDate(entry.date);
+      if (entry.occurred_at) {
+        const time = new Date(entry.occurred_at).toTimeString().slice(0, 5);
+        setFormTime(time);
+      } else {
+        setFormTime('');
+      }
       setFormCategoryId(entry.category_id || '');
       setFormMemo(entry.memo || '');
       setFormPayerMemberId(entry.payer_member_id);
       setFormShared(entry.shared);
+      setFormAccountId(entry.account_id || '');
+      setFormTransferFromAccountId(entry.transfer_from_account_id || '');
+      setFormTransferToAccountId(entry.transfer_to_account_id || '');
     } else {
       resetForm();
     }
@@ -142,14 +149,38 @@ export default function EntriesPage() {
     setFormLoading(true);
 
     try {
-      const data = {
+      // Validate transfer fields
+      if (formType === 'transfer') {
+        if (!formTransferFromAccountId || !formTransferToAccountId) {
+          setFormError('이체의 경우 출금 계좌와 입금 계좌를 모두 선택해야 합니다.');
+          setFormLoading(false);
+          return;
+        }
+        if (formTransferFromAccountId === formTransferToAccountId) {
+          setFormError('출금 계좌와 입금 계좌는 서로 달라야 합니다.');
+          setFormLoading(false);
+          return;
+        }
+      }
+
+      // Build occurred_at if time is provided
+      let occurred_at: string | undefined;
+      if (formDate && formTime) {
+        occurred_at = `${formDate}T${formTime}:00`;
+      }
+
+      const data: EntryCreateData = {
         type: formType,
         amount: Number(formAmount),
         date: formDate,
+        occurred_at,
         category_id: formCategoryId || undefined,
         memo: formMemo || undefined,
         payer_member_id: formPayerMemberId,
         shared: formShared,
+        account_id: formAccountId || undefined,
+        transfer_from_account_id: formType === 'transfer' ? formTransferFromAccountId : undefined,
+        transfer_to_account_id: formType === 'transfer' ? formTransferToAccountId : undefined,
       };
 
       if (editingEntry) {
@@ -191,6 +222,24 @@ export default function EntriesPage() {
     setMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
   };
 
+  const getEntryTypeLabel = (type: string) => {
+    switch (type) {
+      case 'expense': return '지출';
+      case 'income': return '수입';
+      case 'transfer': return '이체';
+      default: return type;
+    }
+  };
+
+  const getEntryTypeColor = (type: string) => {
+    switch (type) {
+      case 'expense': return 'bg-red-100 text-red-700';
+      case 'income': return 'bg-green-100 text-green-700';
+      case 'transfer': return 'bg-purple-100 text-purple-700';
+      default: return 'bg-gray-100 text-gray-700';
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -199,7 +248,9 @@ export default function EntriesPage() {
     );
   }
 
-  const filteredCategories = categories.filter(c => c.type === formType);
+  const filteredCategories = categories.filter(c =>
+    formType === 'transfer' ? false : c.type === formType
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -246,29 +297,37 @@ export default function EntriesPage() {
                 onClick={() => handleOpenForm(entry)}
               >
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-sm px-2 py-0.5 rounded ${
-                      entry.type === 'expense' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                    }`}>
-                      {entry.type === 'expense' ? '지출' : '수입'}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-sm px-2 py-0.5 rounded ${getEntryTypeColor(entry.type)}`}>
+                      {getEntryTypeLabel(entry.type)}
                     </span>
                     {entry.shared && (
                       <span className="text-sm px-2 py-0.5 rounded bg-blue-100 text-blue-700">
                         공동
                       </span>
                     )}
-                    <span className="text-sm text-gray-500">{entry.category_name || '미분류'}</span>
+                    {entry.type !== 'transfer' && (
+                      <span className="text-sm text-gray-500">{entry.category_name || '미분류'}</span>
+                    )}
                   </div>
                   <p className="text-sm text-gray-500 mt-1">
                     {entry.date} · {entry.payer_name}
+                    {entry.account_name && ` · ${entry.account_name}`}
+                    {entry.type === 'transfer' && entry.transfer_from_account_name && entry.transfer_to_account_name && (
+                      <span className="text-purple-600">
+                        {' '}({entry.transfer_from_account_name} → {entry.transfer_to_account_name})
+                      </span>
+                    )}
                     {entry.memo && ` · ${entry.memo}`}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className={`text-lg font-bold ${
-                    entry.type === 'expense' ? 'text-red-600' : 'text-green-600'
+                    entry.type === 'expense' ? 'text-red-600' :
+                    entry.type === 'income' ? 'text-green-600' :
+                    'text-purple-600'
                   }`}>
-                    {entry.type === 'expense' ? '-' : '+'}{formatCurrency(entry.amount)}
+                    {entry.type === 'expense' ? '-' : entry.type === 'income' ? '+' : ''}{formatCurrency(entry.amount)}
                   </span>
                   <button
                     onClick={(e) => {
@@ -331,6 +390,21 @@ export default function EntriesPage() {
                 >
                   수입
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormType('transfer');
+                    setFormCategoryId('');
+                    setFormShared(false);
+                  }}
+                  className={`flex-1 py-2 rounded-lg font-medium ${
+                    formType === 'transfer'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-200 text-gray-700'
+                  }`}
+                >
+                  이체
+                </button>
               </div>
 
               {/* Amount */}
@@ -346,34 +420,104 @@ export default function EntriesPage() {
                 />
               </div>
 
-              {/* Date */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700">날짜</label>
-                <input
-                  type="date"
-                  value={formDate}
-                  onChange={(e) => setFormDate(e.target.value)}
-                  className="input mt-1"
-                  required
-                />
+              {/* Date and Time */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">날짜</label>
+                  <input
+                    type="date"
+                    value={formDate}
+                    onChange={(e) => setFormDate(e.target.value)}
+                    className="input mt-1"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">시간 (선택)</label>
+                  <input
+                    type="time"
+                    value={formTime}
+                    onChange={(e) => setFormTime(e.target.value)}
+                    className="input mt-1"
+                  />
+                </div>
               </div>
 
-              {/* Category */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700">카테고리</label>
-                <select
-                  value={formCategoryId}
-                  onChange={(e) => setFormCategoryId(e.target.value)}
-                  className="input mt-1"
-                >
-                  <option value="">선택 안함</option>
-                  {filteredCategories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* Transfer Account Selection */}
+              {formType === 'transfer' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">출금 계좌</label>
+                    <select
+                      value={formTransferFromAccountId}
+                      onChange={(e) => setFormTransferFromAccountId(e.target.value)}
+                      className="input mt-1"
+                      required
+                    >
+                      <option value="">선택하세요</option>
+                      {accounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name} {account.bank_name ? `(${account.bank_name})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">입금 계좌</label>
+                    <select
+                      value={formTransferToAccountId}
+                      onChange={(e) => setFormTransferToAccountId(e.target.value)}
+                      className="input mt-1"
+                      required
+                    >
+                      <option value="">선택하세요</option>
+                      {accounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name} {account.bank_name ? `(${account.bank_name})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {/* Account (for income/expense) */}
+              {formType !== 'transfer' && accounts.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">계좌 (선택)</label>
+                  <select
+                    value={formAccountId}
+                    onChange={(e) => setFormAccountId(e.target.value)}
+                    className="input mt-1"
+                  >
+                    <option value="">선택 안함</option>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name} {account.bank_name ? `(${account.bank_name})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Category (only for income/expense) */}
+              {formType !== 'transfer' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">카테고리</label>
+                  <select
+                    value={formCategoryId}
+                    onChange={(e) => setFormCategoryId(e.target.value)}
+                    className="input mt-1"
+                  >
+                    <option value="">선택 안함</option>
+                    {filteredCategories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Payer */}
               <div>
@@ -392,7 +536,7 @@ export default function EntriesPage() {
                 </select>
               </div>
 
-              {/* Shared */}
+              {/* Shared (only for expense) */}
               {formType === 'expense' && (
                 <div className="flex items-center gap-2">
                   <input

@@ -35,3 +35,17 @@ Thumbs.db
 
 # Docker
 *.log
+
+# Local docker compose env
+.env.docker
+
+# Personal data files (XLS, CSV containing personal financial data)
+documents/*.xls
+documents/*.xlsx
+documents/*.csv
+
+# Google service account credentials (NEVER commit these)
+*-service-account.json
+service-account*.json
+credentials*.json
+google-credentials.json

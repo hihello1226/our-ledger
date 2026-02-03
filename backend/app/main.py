@@ -7,12 +7,15 @@ from app.api import (
     entries_router,
     summary_router,
     settlement_router,
+    accounts_router,
+    import_csv_router,
+    external_sources_router,
 )
 
 app = FastAPI(
     title="OurLedger API",
     description="공동 가계부 애플리케이션 API",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 # CORS 설정
@@ -37,11 +40,14 @@ app.include_router(household_router)
 app.include_router(entries_router)
 app.include_router(summary_router)
 app.include_router(settlement_router)
+app.include_router(accounts_router)
+app.include_router(import_csv_router)
+app.include_router(external_sources_router)
 
 
 @app.get("/")
 def root():
-    return {"message": "OurLedger API", "docs": "/docs"}
+    return {"message": "OurLedger API", "version": "1.1.0", "docs": "/docs"}
 
 
 @app.get("/health")

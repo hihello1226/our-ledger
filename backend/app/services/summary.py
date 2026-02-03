@@ -1,18 +1,25 @@
 from uuid import UUID
 from sqlalchemy.orm import Session
-from sqlalchemy import extract, func
+from sqlalchemy import extract, func, or_
 
-from app.models import Entry, Category, HouseholdMember
-from app.schemas import (
+from app.models import Entry, Category, HouseholdMember, Account, MonthlySettlement, User
+from app.schemas.summary import (
     CategorySummary,
     MemberSummary,
     MonthlySummary,
     SettlementItem,
     SettlementResponse,
+    CumulativeSettlement,
+    MonthlySettlementRecord,
 )
 
 
-def get_monthly_summary(db: Session, household_id: UUID, month: str) -> MonthlySummary:
+def get_monthly_summary(
+    db: Session,
+    household_id: UUID,
+    month: str,
+    account_ids: list[UUID] | None = None,
+) -> MonthlySummary:
     year, mon = map(int, month.split("-"))
 
     # Base query for the month
@@ -22,9 +29,20 @@ def get_monthly_summary(db: Session, household_id: UUID, month: str) -> MonthlyS
         extract("month", Entry.date) == mon,
     )
 
-    # Total income and expense
+    # Apply account filter if provided
+    if account_ids:
+        base_query = base_query.filter(
+            or_(
+                Entry.account_id.in_(account_ids),
+                Entry.transfer_from_account_id.in_(account_ids),
+                Entry.transfer_to_account_id.in_(account_ids),
+            )
+        )
+
+    # Total income and expense (exclude transfers)
     totals = (
-        base_query.with_entities(
+        base_query.filter(Entry.type.in_(["income", "expense"]))
+        .with_entities(
             Entry.type,
             func.sum(Entry.amount).label("total"),
         )
@@ -40,7 +58,7 @@ def get_monthly_summary(db: Session, household_id: UUID, month: str) -> MonthlyS
         elif t.type == "expense":
             total_expense = t.total or 0
 
-    # By category
+    # By category (expenses only, exclude transfers)
     by_category_data = (
         base_query.with_entities(
             Entry.category_id,
@@ -110,6 +128,12 @@ def get_monthly_summary(db: Session, household_id: UUID, month: str) -> MonthlyS
             )
         )
 
+    # Calculate cumulative settlement
+    cumulative_settlement = calculate_cumulative_settlement(db, household_id, month)
+
+    # Calculate net balance (sum of all accessible account balances)
+    net_balance = calculate_net_balance(db, household_id, account_ids)
+
     return MonthlySummary(
         month=month,
         total_income=total_income,
@@ -117,7 +141,74 @@ def get_monthly_summary(db: Session, household_id: UUID, month: str) -> MonthlyS
         balance=total_income - total_expense,
         by_category=by_category,
         by_member=by_member,
+        cumulative_settlement=cumulative_settlement,
+        net_balance=net_balance,
+        filtered_account_ids=account_ids or [],
     )
+
+
+def calculate_cumulative_settlement(
+    db: Session,
+    household_id: UUID,
+    up_to_month: str,
+) -> list[CumulativeSettlement]:
+    """
+    Calculate cumulative settlement balance for each user up to a given month.
+    Positive balance = user should receive money
+    Negative balance = user should pay money
+    """
+    # Get all settlement records up to and including the month
+    records = (
+        db.query(MonthlySettlement)
+        .filter(
+            MonthlySettlement.household_id == household_id,
+            MonthlySettlement.month <= up_to_month,
+        )
+        .all()
+    )
+
+    # Aggregate by user
+    user_balances = {}
+    for record in records:
+        if record.user_id not in user_balances:
+            user_balances[record.user_id] = 0
+        user_balances[record.user_id] += record.settlement_amount
+
+    # Get user names
+    result = []
+    for user_id, balance in user_balances.items():
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            result.append(
+                CumulativeSettlement(
+                    user_id=user_id,
+                    user_name=user.name,
+                    cumulative_balance=balance,
+                )
+            )
+
+    return result
+
+
+def calculate_net_balance(
+    db: Session,
+    household_id: UUID,
+    account_ids: list[UUID] | None = None,
+) -> int:
+    """
+    Calculate total net balance from account balances.
+    If account_ids is provided, only sum those accounts.
+    """
+    query = db.query(func.sum(Account.balance)).filter(
+        Account.household_id == household_id,
+        Account.balance.isnot(None),
+    )
+
+    if account_ids:
+        query = query.filter(Account.id.in_(account_ids))
+
+    total = query.scalar()
+    return total or 0
 
 
 def calculate_settlement(
@@ -152,6 +243,8 @@ def calculate_settlement(
             month=month,
             total_shared_expense=total_shared,
             settlements=[],
+            cumulative_settlements=calculate_cumulative_settlement(db, household_id, month),
+            monthly_records=get_monthly_settlement_records(db, household_id, month),
         )
 
     # Calculate how much each member paid for shared expenses
@@ -160,6 +253,7 @@ def calculate_settlement(
         paid = sum(e.amount for e in shared_entries if e.payer_member_id == member.id)
         member_paid[member.id] = {
             "name": member.user.name,
+            "user_id": member.user_id,
             "paid": paid,
         }
 
@@ -172,6 +266,7 @@ def calculate_settlement(
         balance = data["paid"] - per_person
         balances.append({
             "member_id": member_id,
+            "user_id": data["user_id"],
             "name": data["name"],
             "balance": balance,
         })
@@ -214,4 +309,97 @@ def calculate_settlement(
         month=month,
         total_shared_expense=total_shared,
         settlements=settlements,
+        cumulative_settlements=calculate_cumulative_settlement(db, household_id, month),
+        monthly_records=get_monthly_settlement_records(db, household_id, month),
     )
+
+
+def get_monthly_settlement_records(
+    db: Session,
+    household_id: UUID,
+    month: str,
+) -> list[MonthlySettlementRecord]:
+    """Get monthly settlement records for a specific month"""
+    records = (
+        db.query(MonthlySettlement)
+        .filter(
+            MonthlySettlement.household_id == household_id,
+            MonthlySettlement.month == month,
+        )
+        .all()
+    )
+
+    result = []
+    for record in records:
+        user = db.query(User).filter(User.id == record.user_id).first()
+        if user:
+            result.append(
+                MonthlySettlementRecord(
+                    id=record.id,
+                    user_id=record.user_id,
+                    user_name=user.name,
+                    month=record.month,
+                    settlement_amount=record.settlement_amount,
+                    is_finalized=record.is_finalized,
+                )
+            )
+
+    return result
+
+
+def save_monthly_settlement(
+    db: Session,
+    household_id: UUID,
+    user_id: UUID,
+    month: str,
+    settlement_amount: int,
+) -> MonthlySettlement:
+    """Save or update a monthly settlement record"""
+    existing = (
+        db.query(MonthlySettlement)
+        .filter(
+            MonthlySettlement.household_id == household_id,
+            MonthlySettlement.user_id == user_id,
+            MonthlySettlement.month == month,
+        )
+        .first()
+    )
+
+    if existing:
+        existing.settlement_amount = settlement_amount
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    settlement = MonthlySettlement(
+        household_id=household_id,
+        user_id=user_id,
+        month=month,
+        settlement_amount=settlement_amount,
+    )
+    db.add(settlement)
+    db.commit()
+    db.refresh(settlement)
+    return settlement
+
+
+def finalize_monthly_settlement(
+    db: Session,
+    household_id: UUID,
+    month: str,
+) -> list[MonthlySettlement]:
+    """Finalize all settlement records for a month"""
+    records = (
+        db.query(MonthlySettlement)
+        .filter(
+            MonthlySettlement.household_id == household_id,
+            MonthlySettlement.month == month,
+        )
+        .all()
+    )
+
+    for record in records:
+        record.is_finalized = True
+
+    db.commit()
+    return records

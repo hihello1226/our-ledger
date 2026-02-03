@@ -3,23 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { summaryAPI, householdAPI } from '@/lib/api';
+import { summaryAPI, householdAPI, accountsAPI, MonthlySummary, Account } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-
-type Summary = {
-  month: string;
-  total_income: number;
-  total_expense: number;
-  balance: number;
-  by_category: Array<{ category_id: string | null; category_name: string; total: number }>;
-  by_member: Array<{
-    member_id: string;
-    member_name: string;
-    total_expense: number;
-    total_income: number;
-    shared_expense: number;
-  }>;
-};
 
 type Household = {
   id: string;
@@ -28,14 +13,17 @@ type Household = {
 };
 
 export default function DashboardPage() {
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const [summary, setSummary] = useState<MonthlySummary | null>(null);
   const [household, setHousehold] = useState<Household | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [month, setMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [loading, setLoading] = useState(true);
   const [showInviteCode, setShowInviteCode] = useState(false);
+  const [showAccountFilter, setShowAccountFilter] = useState(false);
   const router = useRouter();
   const { user, loading: authLoading, logout } = useAuth();
 
@@ -48,15 +36,35 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [summaryData, householdData] = await Promise.all([
-          summaryAPI.get(month),
+        const [householdData, accountsData] = await Promise.all([
           householdAPI.get(),
+          accountsAPI.list(),
         ]);
-        setSummary(summaryData);
         setHousehold(householdData);
+        setAccounts(accountsData);
         if (!householdData) {
           router.push('/onboarding');
         }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    if (user) {
+      fetchData();
+    }
+  }, [user, router]);
+
+  useEffect(() => {
+    const fetchSummary = async () => {
+      if (!user) return;
+      setLoading(true);
+      try {
+        const summaryData = await summaryAPI.get(
+          month,
+          selectedAccountIds.length > 0 ? selectedAccountIds : undefined
+        );
+        setSummary(summaryData);
       } catch (err) {
         console.error(err);
       } finally {
@@ -64,10 +72,8 @@ export default function DashboardPage() {
       }
     };
 
-    if (user) {
-      fetchData();
-    }
-  }, [user, month, router]);
+    fetchSummary();
+  }, [user, month, selectedAccountIds]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('ko-KR').format(amount) + '원';
@@ -85,7 +91,19 @@ export default function DashboardPage() {
     setMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
   };
 
-  if (authLoading || loading) {
+  const toggleAccountFilter = (accountId: string) => {
+    setSelectedAccountIds(prev =>
+      prev.includes(accountId)
+        ? prev.filter(id => id !== accountId)
+        : [...prev, accountId]
+    );
+  };
+
+  const clearAccountFilter = () => {
+    setSelectedAccountIds([]);
+  };
+
+  if (authLoading || (loading && !summary)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -141,6 +159,53 @@ export default function DashboardPage() {
           </button>
         </div>
 
+        {/* Account Filter */}
+        {accounts.length > 0 && (
+          <div className="card">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-sm text-gray-700">계좌 필터</h3>
+              <div className="flex gap-2">
+                {selectedAccountIds.length > 0 && (
+                  <button
+                    onClick={clearAccountFilter}
+                    className="text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    초기화
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowAccountFilter(!showAccountFilter)}
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  {showAccountFilter ? '접기' : '펼치기'}
+                </button>
+              </div>
+            </div>
+            {selectedAccountIds.length > 0 && !showAccountFilter && (
+              <p className="text-sm text-gray-500">
+                {selectedAccountIds.length}개 계좌 선택됨
+              </p>
+            )}
+            {showAccountFilter && (
+              <div className="flex flex-wrap gap-2">
+                {accounts.map(account => (
+                  <button
+                    key={account.id}
+                    onClick={() => toggleAccountFilter(account.id)}
+                    className={`px-3 py-1 text-sm rounded-full border transition-colors ${
+                      selectedAccountIds.includes(account.id)
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                    }`}
+                  >
+                    {account.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Summary Cards */}
         {summary && (
           <>
@@ -164,6 +229,50 @@ export default function DashboardPage() {
                 </p>
               </div>
             </div>
+
+            {/* Net Balance */}
+            {summary.net_balance !== 0 && (
+              <div className="card bg-blue-50 border-blue-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-blue-700">현재 자산 (계좌 잔액 합계)</p>
+                    <p className="text-2xl font-bold text-blue-800">
+                      {formatCurrency(summary.net_balance)}
+                    </p>
+                  </div>
+                  <Link href="/accounts" className="text-sm text-blue-600 hover:underline">
+                    계좌 관리 &rarr;
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {/* Cumulative Settlement */}
+            {summary.cumulative_settlement.length > 0 && (
+              <div className="card">
+                <h2 className="text-lg font-semibold mb-4">누적 정산 현황</h2>
+                <div className="space-y-2">
+                  {summary.cumulative_settlement.map((item) => (
+                    <div key={item.user_id} className="flex justify-between items-center">
+                      <span className="text-gray-600">{item.user_name}</span>
+                      <span className={`font-medium ${
+                        item.cumulative_balance > 0
+                          ? 'text-green-600'
+                          : item.cumulative_balance < 0
+                          ? 'text-red-600'
+                          : 'text-gray-500'
+                      }`}>
+                        {item.cumulative_balance > 0 ? '+' : ''}
+                        {formatCurrency(item.cumulative_balance)}
+                        <span className="text-xs text-gray-400 ml-1">
+                          {item.cumulative_balance > 0 ? '받을 금액' : item.cumulative_balance < 0 ? '줄 금액' : ''}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* By Category */}
             {summary.by_category.length > 0 && (
@@ -209,6 +318,17 @@ export default function DashboardPage() {
           <Link href="/settlement" className="card text-center hover:shadow-lg transition-shadow">
             <p className="text-lg font-semibold">정산</p>
             <p className="text-sm text-gray-500">공동 지출 정산</p>
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Link href="/accounts" className="card text-center hover:shadow-lg transition-shadow">
+            <p className="text-lg font-semibold">계좌 관리</p>
+            <p className="text-sm text-gray-500">계좌 추가/수정</p>
+          </Link>
+          <Link href="/import/csv" className="card text-center hover:shadow-lg transition-shadow">
+            <p className="text-lg font-semibold">데이터 가져오기</p>
+            <p className="text-sm text-gray-500">CSV 파일 Import</p>
           </Link>
         </div>
       </main>

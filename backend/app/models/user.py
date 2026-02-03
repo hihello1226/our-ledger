@@ -20,3 +20,12 @@ class User(Base):
     entries_created: Mapped[list["Entry"]] = relationship(
         "Entry", back_populates="created_by_user"
     )
+    accounts: Mapped[list["Account"]] = relationship(
+        "Account", back_populates="owner_user"
+    )
+    external_sources: Mapped[list["ExternalDataSource"]] = relationship(
+        "ExternalDataSource", back_populates="created_by_user"
+    )
+    monthly_settlements: Mapped[list["MonthlySettlement"]] = relationship(
+        "MonthlySettlement", back_populates="user"
+    )
