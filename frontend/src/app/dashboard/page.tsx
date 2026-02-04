@@ -331,6 +331,13 @@ export default function DashboardPage() {
             <p className="text-sm text-gray-500">CSV 파일 Import</p>
           </Link>
         </div>
+
+        <div className="grid grid-cols-1 gap-4">
+          <Link href="/settings/integrations/google-sheets" className="card text-center hover:shadow-lg transition-shadow">
+            <p className="text-lg font-semibold">Google Sheets 연동</p>
+            <p className="text-sm text-gray-500">스프레드시트 Import/Export</p>
+          </Link>
+        </div>
       </main>
     </div>
   );
