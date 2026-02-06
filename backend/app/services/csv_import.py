@@ -14,8 +14,8 @@ from app.schemas.external_source import (
     ImportConfirmResponse,
 )
 
-# In-memory storage for uploaded CSV files (in production, use Redis or file storage)
-_csv_cache: dict[str, dict] = {}
+# In-memory storage for uploaded files (in production, use Redis or file storage)
+_file_cache: dict[str, dict] = {}
 
 
 def parse_csv(file_content: bytes, encoding: str = "utf-8") -> tuple[list[str], list[dict]]:
@@ -40,38 +40,175 @@ def parse_csv(file_content: bytes, encoding: str = "utf-8") -> tuple[list[str], 
     return headers, rows
 
 
+def parse_excel(file_content: bytes, filename: str) -> tuple[list[str], list[dict]]:
+    """Parse Excel file (.xls or .xlsx) and return headers and rows"""
+    file_ext = filename.lower().split(".")[-1] if filename else ""
+
+    if file_ext == "xls":
+        # Use xlrd for .xls files
+        try:
+            import xlrd
+        except ImportError:
+            raise ValueError("xlrd library is required for .xls files")
+
+        workbook = xlrd.open_workbook(file_contents=file_content)
+        sheet = workbook.sheet_by_index(0)
+
+        if sheet.nrows < 1:
+            raise ValueError("Excel file is empty")
+
+        # Get headers from first row
+        headers = []
+        for col in range(sheet.ncols):
+            cell_value = sheet.cell_value(0, col)
+            headers.append(str(cell_value).strip() if cell_value else f"Column{col+1}")
+
+        # Get data rows
+        rows = []
+        for row_idx in range(1, sheet.nrows):
+            row_data = {}
+            for col_idx in range(sheet.ncols):
+                cell = sheet.cell(row_idx, col_idx)
+                cell_value = cell.value
+
+                # Handle date cells
+                if cell.ctype == xlrd.XL_CELL_DATE:
+                    try:
+                        date_tuple = xlrd.xldate_as_tuple(cell_value, workbook.datemode)
+                        cell_value = f"{date_tuple[0]}-{date_tuple[1]:02d}-{date_tuple[2]:02d}"
+                    except:
+                        pass
+                # Handle number cells
+                elif cell.ctype == xlrd.XL_CELL_NUMBER:
+                    # Keep as number but convert to string for consistency
+                    if cell_value == int(cell_value):
+                        cell_value = str(int(cell_value))
+                    else:
+                        cell_value = str(cell_value)
+                else:
+                    cell_value = str(cell_value).strip() if cell_value else ""
+
+                if col_idx < len(headers):
+                    row_data[headers[col_idx]] = cell_value
+
+            # Skip empty rows
+            if any(v for v in row_data.values()):
+                rows.append(row_data)
+
+        return headers, rows
+
+    elif file_ext == "xlsx":
+        # Use openpyxl for .xlsx files
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            raise ValueError("openpyxl library is required for .xlsx files")
+
+        workbook = load_workbook(filename=io.BytesIO(file_content), read_only=True, data_only=True)
+        sheet = workbook.active
+
+        if sheet is None or sheet.max_row < 1:
+            raise ValueError("Excel file is empty")
+
+        # Get headers from first row
+        headers = []
+        for col in range(1, sheet.max_column + 1):
+            cell_value = sheet.cell(row=1, column=col).value
+            headers.append(str(cell_value).strip() if cell_value else f"Column{col}")
+
+        # Get data rows
+        rows = []
+        for row_idx in range(2, sheet.max_row + 1):
+            row_data = {}
+            for col_idx in range(1, sheet.max_column + 1):
+                cell_value = sheet.cell(row=row_idx, column=col_idx).value
+
+                # Handle date cells
+                if isinstance(cell_value, datetime):
+                    cell_value = cell_value.strftime("%Y-%m-%d")
+                elif isinstance(cell_value, date):
+                    cell_value = cell_value.strftime("%Y-%m-%d")
+                elif cell_value is not None:
+                    # Handle numbers
+                    if isinstance(cell_value, float):
+                        if cell_value == int(cell_value):
+                            cell_value = str(int(cell_value))
+                        else:
+                            cell_value = str(cell_value)
+                    else:
+                        cell_value = str(cell_value).strip()
+                else:
+                    cell_value = ""
+
+                if col_idx - 1 < len(headers):
+                    row_data[headers[col_idx - 1]] = cell_value
+
+            # Skip empty rows
+            if any(v for v in row_data.values()):
+                rows.append(row_data)
+
+        workbook.close()
+        return headers, rows
+
+    else:
+        raise ValueError(f"Unsupported Excel format: {file_ext}")
+
+
+def parse_file(file_content: bytes, filename: str, encoding: str = "utf-8") -> tuple[list[str], list[dict]]:
+    """Parse file based on extension and return headers and rows"""
+    file_ext = filename.lower().split(".")[-1] if filename else ""
+
+    if file_ext == "csv":
+        return parse_csv(file_content, encoding)
+    elif file_ext in ("xls", "xlsx"):
+        return parse_excel(file_content, filename)
+    else:
+        raise ValueError(f"Unsupported file format: {file_ext}. Supported formats: csv, xls, xlsx")
+
+
 def detect_column_mapping(headers: list[str]) -> CSVColumnMapping:
     """Detect column mapping based on header names"""
     mapping = CSVColumnMapping()
 
     # Common Korean column names
-    date_names = ["날짜", "거래일", "일자", "date"]
-    amount_names = ["금액", "거래금액", "amount"]
-    type_names = ["유형", "거래유형", "type", "분류"]
-    category_names = ["카테고리", "분류", "category"]
-    memo_names = ["메모", "비고", "적요", "memo", "내용"]
-    account_names = ["계좌", "통장", "account"]
+    date_names = ["날짜", "거래일", "일자", "date", "거래일시", "사용일"]
+    amount_names = ["금액", "거래금액", "amount", "출금", "입금", "사용금액", "결제금액"]
+    type_names = ["유형", "거래유형", "type", "분류", "구분", "입출금구분"]
+    category_names = ["카테고리", "분류", "category", "업종", "가맹점업종"]
+    memo_names = ["메모", "비고", "적요", "memo", "내용", "거래내용", "사용처", "가맹점명", "가맹점"]
+    account_names = ["계좌", "통장", "account", "카드"]
 
     for header in headers:
         header_lower = header.lower().strip()
         if any(name in header_lower for name in date_names):
-            mapping.date = header
+            if not mapping.date:  # Only set if not already set
+                mapping.date = header
         elif any(name in header_lower for name in amount_names):
-            mapping.amount = header
+            if not mapping.amount:
+                mapping.amount = header
         elif any(name in header_lower for name in type_names):
-            mapping.type = header
+            if not mapping.type:
+                mapping.type = header
         elif any(name in header_lower for name in category_names):
-            mapping.category = header
+            if not mapping.category:
+                mapping.category = header
         elif any(name in header_lower for name in memo_names):
-            mapping.memo = header
+            if not mapping.memo:
+                mapping.memo = header
         elif any(name in header_lower for name in account_names):
-            mapping.account = header
+            if not mapping.account:
+                mapping.account = header
 
     return mapping
 
 
 def parse_date(date_str: str) -> Optional[date]:
     """Parse date string to date object"""
+    if not date_str or not isinstance(date_str, str):
+        return None
+
+    date_str = date_str.strip()
+
     formats = [
         "%Y-%m-%d",
         "%Y/%m/%d",
@@ -79,11 +216,14 @@ def parse_date(date_str: str) -> Optional[date]:
         "%d/%m/%Y",
         "%m/%d/%Y",
         "%Y년 %m월 %d일",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y.%m.%d %H:%M:%S",
     ]
 
     for fmt in formats:
         try:
-            return datetime.strptime(date_str.strip(), fmt).date()
+            return datetime.strptime(date_str, fmt).date()
         except ValueError:
             continue
 
@@ -92,9 +232,15 @@ def parse_date(date_str: str) -> Optional[date]:
 
 def parse_amount(amount_str: str) -> Optional[int]:
     """Parse amount string to integer"""
+    if not amount_str:
+        return None
+
+    if isinstance(amount_str, (int, float)):
+        return int(amount_str)
+
     # Remove currency symbols, commas, spaces
-    cleaned = amount_str.replace(",", "").replace(" ", "").replace("원", "")
-    cleaned = cleaned.replace("₩", "").replace("$", "")
+    cleaned = str(amount_str).replace(",", "").replace(" ", "").replace("원", "")
+    cleaned = cleaned.replace("₩", "").replace("$", "").replace("\\", "")
 
     try:
         # Handle negative amounts
@@ -115,15 +261,16 @@ def preview_import(
     db: Session,
     file_content: bytes,
     household_id: uuid.UUID,
+    filename: str = "file.csv",
     encoding: str = "utf-8",
 ) -> CSVUploadResponse:
-    """Parse CSV and generate preview"""
-    headers, rows = parse_csv(file_content, encoding)
+    """Parse file and generate preview"""
+    headers, rows = parse_file(file_content, filename, encoding)
     mapping = detect_column_mapping(headers)
 
     # Generate file ID and cache
     file_id = str(uuid.uuid4())
-    _csv_cache[file_id] = {
+    _file_cache[file_id] = {
         "headers": headers,
         "rows": rows,
         "household_id": str(household_id),
@@ -133,8 +280,8 @@ def preview_import(
     # Generate preview rows (first 10)
     preview_rows = []
     for i, row in enumerate(rows[:10]):
-        date_str = row.get(mapping.date, "")
-        amount_str = row.get(mapping.amount, "")
+        date_str = row.get(mapping.date, "") if mapping.date else ""
+        amount_str = row.get(mapping.amount, "") if mapping.amount else ""
 
         parsed_date = parse_date(date_str)
         parsed_amount = parse_amount(amount_str)
@@ -148,8 +295,8 @@ def preview_import(
         # Determine type
         entry_type = "expense"
         if mapping.type and row.get(mapping.type):
-            type_value = row.get(mapping.type, "").lower()
-            if "income" in type_value or "수입" in type_value:
+            type_value = str(row.get(mapping.type, "")).lower()
+            if "income" in type_value or "수입" in type_value or "입금" in type_value:
                 entry_type = "income"
             elif "transfer" in type_value or "이체" in type_value:
                 entry_type = "transfer"
@@ -160,12 +307,12 @@ def preview_import(
         preview_rows.append(
             CSVPreviewRow(
                 row_number=i + 1,
-                date=date_str,
+                date=str(date_str),
                 amount=abs(parsed_amount) if parsed_amount else 0,
                 type=entry_type,
-                category=row.get(mapping.category) if mapping.category else None,
-                memo=row.get(mapping.memo) if mapping.memo else None,
-                account=row.get(mapping.account) if mapping.account else None,
+                category=str(row.get(mapping.category, "")) if mapping.category and row.get(mapping.category) else None,
+                memo=str(row.get(mapping.memo, "")) if mapping.memo and row.get(mapping.memo) else None,
+                account=str(row.get(mapping.account, "")) if mapping.account and row.get(mapping.account) else None,
                 is_duplicate=False,  # Will be checked during confirm
                 error=error,
             )
@@ -190,8 +337,8 @@ def execute_import(
     default_payer_member_id: uuid.UUID,
     skip_duplicates: bool = True,
 ) -> ImportConfirmResponse:
-    """Execute the import from cached CSV data"""
-    cached = _csv_cache.get(file_id)
+    """Execute the import from cached file data"""
+    cached = _file_cache.get(file_id)
     if not cached:
         return ImportConfirmResponse(
             imported_count=0,
@@ -232,8 +379,8 @@ def execute_import(
 
     for i, row in enumerate(rows):
         try:
-            date_str = row.get(column_mapping.date, "")
-            amount_str = row.get(column_mapping.amount, "")
+            date_str = row.get(column_mapping.date, "") if column_mapping.date else ""
+            amount_str = row.get(column_mapping.amount, "") if column_mapping.amount else ""
 
             parsed_date = parse_date(date_str)
             parsed_amount = parse_amount(amount_str)
@@ -251,13 +398,13 @@ def execute_import(
             # Determine type
             entry_type = "expense"
             if column_mapping.type and row.get(column_mapping.type):
-                type_value = row.get(column_mapping.type, "").lower()
-                if "income" in type_value or "수입" in type_value:
+                type_value = str(row.get(column_mapping.type, "")).lower()
+                if "income" in type_value or "수입" in type_value or "입금" in type_value:
                     entry_type = "income"
                 elif "transfer" in type_value or "이체" in type_value:
                     entry_type = "transfer"
 
-            memo = row.get(column_mapping.memo) if column_mapping.memo else None
+            memo = str(row.get(column_mapping.memo, "")) if column_mapping.memo and row.get(column_mapping.memo) else None
 
             # Check for duplicates
             if skip_duplicates:
@@ -271,7 +418,7 @@ def execute_import(
             # Find category
             category_id = None
             if column_mapping.category and row.get(column_mapping.category):
-                category_name = row.get(column_mapping.category, "").lower().strip()
+                category_name = str(row.get(column_mapping.category, "")).lower().strip()
                 category_id = category_map.get(category_name)
 
             # Create entry
@@ -298,7 +445,7 @@ def execute_import(
     db.commit()
 
     # Clean up cache
-    del _csv_cache[file_id]
+    del _file_cache[file_id]
 
     return ImportConfirmResponse(
         imported_count=imported_count,

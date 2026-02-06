@@ -14,3 +14,6 @@ python-multipart==0.0.6
 # Google Sheets integration (v1.1)
 google-api-python-client==2.111.0
 google-auth==2.25.2
+# Excel file support (v1.1)
+xlrd==2.0.1
+openpyxl==3.1.2

@@ -178,7 +178,7 @@ export default function CSVImportPage() {
           <Link href="/dashboard" className="text-blue-600 hover:underline">
             &lt; 대시보드
           </Link>
-          <h1 className="text-xl font-bold text-gray-900">CSV Import</h1>
+          <h1 className="text-xl font-bold text-gray-900">파일 Import</h1>
           <div></div>
         </div>
       </header>
@@ -207,16 +207,16 @@ export default function CSVImportPage() {
         {/* Step 1: Upload */}
         {step === 'upload' && (
           <div className="card max-w-lg mx-auto">
-            <h2 className="text-lg font-semibold mb-4">1. CSV 파일 업로드</h2>
+            <h2 className="text-lg font-semibold mb-4">1. 파일 업로드</h2>
 
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  CSV 파일 선택
+                  파일 선택 (CSV, Excel)
                 </label>
                 <input
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.xls,.xlsx"
                   onChange={handleFileChange}
                   className="block w-full text-sm text-gray-500
                     file:mr-4 file:py-2 file:px-4

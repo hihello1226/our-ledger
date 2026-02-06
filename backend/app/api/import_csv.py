@@ -14,17 +14,27 @@ from app.services.household import get_user_household, get_member_by_user_and_ho
 from app.services.csv_import import preview_import, execute_import
 from app.models import User
 
-router = APIRouter(prefix="/api/import/csv", tags=["import"])
+router = APIRouter(prefix="/api/import", tags=["import"])
+
+# Supported file extensions
+ALLOWED_EXTENSIONS = {".csv", ".xls", ".xlsx"}
 
 
-@router.post("/upload", response_model=CSVUploadResponse)
-async def upload_csv(
+def get_file_extension(filename: str) -> str:
+    """Get file extension from filename"""
+    if not filename:
+        return ""
+    return "." + filename.lower().split(".")[-1] if "." in filename else ""
+
+
+@router.post("/csv/upload", response_model=CSVUploadResponse)
+async def upload_file(
     file: UploadFile = File(...),
     encoding: str = Form(default="utf-8"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Upload CSV file and get preview with column detection"""
+    """Upload CSV or Excel file and get preview with column detection"""
     household = get_user_household(db, current_user.id)
     if not household:
         raise HTTPException(
@@ -33,10 +43,11 @@ async def upload_csv(
         )
 
     # Validate file type
-    if not file.filename or not file.filename.lower().endswith(".csv"):
+    file_ext = get_file_extension(file.filename or "")
+    if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only CSV files are allowed",
+            detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
         )
 
     # Read file content
@@ -48,22 +59,33 @@ async def upload_csv(
         )
 
     try:
-        result = preview_import(db, content, household.id, encoding)
+        result = preview_import(
+            db,
+            content,
+            household.id,
+            filename=file.filename or "file.csv",
+            encoding=encoding,
+        )
         return result
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to parse file: {str(e)}",
+        )
 
 
-@router.post("/confirm", response_model=ImportConfirmResponse)
+@router.post("/csv/confirm", response_model=ImportConfirmResponse)
 def confirm_import(
     request: ImportConfirmRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Confirm and execute the CSV import"""
+    """Confirm and execute the import"""
     household = get_user_household(db, current_user.id)
     if not household:
         raise HTTPException(
@@ -72,8 +94,6 @@ def confirm_import(
         )
 
     # Validate payer_member_id belongs to household
-    member = get_member_by_user_and_household(db, request.default_payer_member_id, household.id)
-    # Note: payer_member_id is the member ID, not user ID, so we need to verify it exists
     from app.models import HouseholdMember
     member = db.query(HouseholdMember).filter(
         HouseholdMember.id == request.default_payer_member_id,
