@@ -40,6 +40,20 @@ def parse_csv(file_content: bytes, encoding: str = "utf-8") -> tuple[list[str], 
     return headers, rows
 
 
+def make_headers_unique(headers: list[str]) -> list[str]:
+    """Make duplicate header names unique by appending _2, _3, etc."""
+    seen = {}
+    unique_headers = []
+    for header in headers:
+        if header in seen:
+            seen[header] += 1
+            unique_headers.append(f"{header}_{seen[header]}")
+        else:
+            seen[header] = 1
+            unique_headers.append(header)
+    return unique_headers
+
+
 def parse_excel(file_content: bytes, filename: str) -> tuple[list[str], list[dict]]:
     """Parse Excel file (.xls or .xlsx) and return headers and rows"""
     file_ext = filename.lower().split(".")[-1] if filename else ""
@@ -58,10 +72,11 @@ def parse_excel(file_content: bytes, filename: str) -> tuple[list[str], list[dic
             raise ValueError("Excel file is empty")
 
         # Get headers from first row
-        headers = []
+        raw_headers = []
         for col in range(sheet.ncols):
             cell_value = sheet.cell_value(0, col)
-            headers.append(str(cell_value).strip() if cell_value else f"Column{col+1}")
+            raw_headers.append(str(cell_value).strip() if cell_value else f"Column{col+1}")
+        headers = make_headers_unique(raw_headers)
 
         # Get data rows
         rows = []
@@ -111,10 +126,11 @@ def parse_excel(file_content: bytes, filename: str) -> tuple[list[str], list[dic
             raise ValueError("Excel file is empty")
 
         # Get headers from first row
-        headers = []
+        raw_headers = []
         for col in range(1, sheet.max_column + 1):
             cell_value = sheet.cell(row=1, column=col).value
-            headers.append(str(cell_value).strip() if cell_value else f"Column{col}")
+            raw_headers.append(str(cell_value).strip() if cell_value else f"Column{col}")
+        headers = make_headers_unique(raw_headers)
 
         # Get data rows
         rows = []
