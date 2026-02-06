@@ -173,10 +173,10 @@ def detect_column_mapping(headers: list[str]) -> CSVColumnMapping:
     # Common Korean column names
     date_names = ["날짜", "거래일", "일자", "date", "거래일시", "사용일"]
     amount_names = ["금액", "거래금액", "amount", "출금", "입금", "사용금액", "결제금액"]
-    type_names = ["유형", "거래유형", "type", "분류", "구분", "입출금구분"]
-    category_names = ["카테고리", "분류", "category", "업종", "가맹점업종"]
+    type_names = ["수입/지출", "유형", "거래유형", "type", "구분", "입출금구분"]
+    category_names = ["카테고리", "분류", "category", "업종", "가맹점업종", "소분류"]
     memo_names = ["메모", "비고", "적요", "memo", "내용", "거래내용", "사용처", "가맹점명", "가맹점"]
-    account_names = ["계좌", "통장", "account", "카드"]
+    account_names = ["계좌", "통장", "account", "카드", "자산"]
 
     for header in headers:
         header_lower = header.lower().strip()

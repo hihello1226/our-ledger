@@ -7,12 +7,12 @@ from typing import Optional
 
 # CSV Import Schemas
 class CSVColumnMapping(BaseModel):
-    date: str = "날짜"
-    amount: str = "금액"
-    type: Optional[str] = "유형"  # expense/income/transfer
-    category: Optional[str] = "카테고리"
-    memo: Optional[str] = "메모"
-    account: Optional[str] = "계좌"
+    date: str = ""
+    amount: str = ""
+    type: Optional[str] = None  # expense/income/transfer
+    category: Optional[str] = None
+    memo: Optional[str] = None
+    account: Optional[str] = None
 
 
 class CSVPreviewRow(BaseModel):
