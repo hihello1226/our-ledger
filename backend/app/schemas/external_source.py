@@ -11,6 +11,7 @@ class CSVColumnMapping(BaseModel):
     amount: str = ""
     type: Optional[str] = None  # expense/income/transfer
     category: Optional[str] = None
+    subcategory: Optional[str] = None  # 소분류
     memo: Optional[str] = None
     account: Optional[str] = None
 

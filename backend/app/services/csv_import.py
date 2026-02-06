@@ -174,7 +174,8 @@ def detect_column_mapping(headers: list[str]) -> CSVColumnMapping:
     date_names = ["날짜", "거래일", "일자", "date", "거래일시", "사용일"]
     amount_names = ["금액", "거래금액", "amount", "출금", "입금", "사용금액", "결제금액"]
     type_names = ["수입/지출", "유형", "거래유형", "type", "구분", "입출금구분"]
-    category_names = ["카테고리", "분류", "category", "업종", "가맹점업종", "소분류"]
+    category_names = ["카테고리", "분류", "category", "업종", "가맹점업종"]
+    subcategory_names = ["소분류", "세부분류", "subcategory"]
     memo_names = ["메모", "비고", "적요", "memo", "내용", "거래내용", "사용처", "가맹점명", "가맹점"]
     account_names = ["계좌", "통장", "account", "카드", "자산"]
 
@@ -189,6 +190,9 @@ def detect_column_mapping(headers: list[str]) -> CSVColumnMapping:
         elif any(name in header_lower for name in type_names):
             if not mapping.type:
                 mapping.type = header
+        elif any(name in header_lower for name in subcategory_names):
+            if not mapping.subcategory:
+                mapping.subcategory = header
         elif any(name in header_lower for name in category_names):
             if not mapping.category:
                 mapping.category = header
@@ -377,6 +381,12 @@ def execute_import(
     ).all()
     category_map = {c.name.lower(): c.id for c in categories}
 
+    # Get existing accounts for matching (and track created ones)
+    existing_accounts = db.query(Account).filter(
+        Account.household_id == household_id
+    ).all()
+    account_map = {a.name.lower(): a.id for a in existing_accounts}
+
     for i, row in enumerate(rows):
         try:
             date_str = row.get(column_mapping.date, "") if column_mapping.date else ""
@@ -421,6 +431,33 @@ def execute_import(
                 category_name = str(row.get(column_mapping.category, "")).lower().strip()
                 category_id = category_map.get(category_name)
 
+            # Get subcategory
+            subcategory = None
+            if column_mapping.subcategory and row.get(column_mapping.subcategory):
+                subcategory = str(row.get(column_mapping.subcategory, "")).strip() or None
+
+            # Find or create account
+            account_id = default_account_id
+            if column_mapping.account and row.get(column_mapping.account):
+                account_name = str(row.get(column_mapping.account, "")).strip()
+                if account_name:
+                    account_name_lower = account_name.lower()
+                    if account_name_lower in account_map:
+                        account_id = account_map[account_name_lower]
+                    else:
+                        # Auto-create account
+                        new_account = Account(
+                            owner_user_id=user_id,
+                            household_id=household_id,
+                            name=account_name,
+                            type="shared",
+                            is_shared_visible=True,
+                        )
+                        db.add(new_account)
+                        db.flush()  # Get the ID
+                        account_map[account_name_lower] = new_account.id
+                        account_id = new_account.id
+
             # Create entry
             entry = Entry(
                 household_id=household_id,
@@ -430,10 +467,11 @@ def execute_import(
                 date=parsed_date,
                 occurred_at=datetime.combine(parsed_date, datetime.min.time()),
                 category_id=category_id,
+                subcategory=subcategory,
                 memo=memo,
                 payer_member_id=default_payer_member_id,
                 shared=False,
-                account_id=default_account_id,
+                account_id=account_id,
             )
             db.add(entry)
             imported_count += 1

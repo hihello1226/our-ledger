@@ -292,6 +292,7 @@ export interface CSVColumnMapping {
   amount: string;
   type?: string;
   category?: string;
+  subcategory?: string;
   memo?: string;
   account?: string;
 }

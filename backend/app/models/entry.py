@@ -24,6 +24,7 @@ class Entry(Base):
         ForeignKey("categories.id"), nullable=True
     )
     memo: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    subcategory: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 소분류
     payer_member_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("household_members.id"), nullable=False
     )

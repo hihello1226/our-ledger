@@ -44,6 +44,7 @@ export default function CSVImportPage() {
     amount: '',
     type: '',
     category: '',
+    subcategory: '',
     memo: '',
     account: '',
   });
@@ -330,6 +331,39 @@ export default function CSVImportPage() {
                     <option key={col} value={col}>{col}</option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  소분류 컬럼 (선택)
+                </label>
+                <select
+                  value={columnMapping.subcategory || ''}
+                  onChange={(e) => setColumnMapping({ ...columnMapping, subcategory: e.target.value || undefined })}
+                  className="input"
+                >
+                  <option value="">없음</option>
+                  {uploadResponse.detected_columns.map(col => (
+                    <option key={col} value={col}>{col}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  계좌/카드 컬럼 (선택)
+                </label>
+                <select
+                  value={columnMapping.account || ''}
+                  onChange={(e) => setColumnMapping({ ...columnMapping, account: e.target.value || undefined })}
+                  className="input"
+                >
+                  <option value="">없음</option>
+                  {uploadResponse.detected_columns.map(col => (
+                    <option key={col} value={col}>{col}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">※ 없는 계좌/카드는 자동으로 생성됩니다</p>
               </div>
 
               <div>
