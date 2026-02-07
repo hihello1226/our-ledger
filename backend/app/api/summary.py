@@ -47,5 +47,5 @@ def get_summary(
                 detail="Invalid account_ids format",
             )
 
-    summary = get_monthly_summary(db, household.id, month, parsed_account_ids)
+    summary = get_monthly_summary(db, household.id, month, current_user.id, parsed_account_ids)
     return summary

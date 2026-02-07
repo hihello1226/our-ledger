@@ -18,6 +18,7 @@ def get_monthly_summary(
     db: Session,
     household_id: UUID,
     month: str,
+    current_user_id: UUID,
     account_ids: list[UUID] | None = None,
 ) -> MonthlySummary:
     year, mon = map(int, month.split("-"))
@@ -132,7 +133,7 @@ def get_monthly_summary(
     cumulative_settlement = calculate_cumulative_settlement(db, household_id, month)
 
     # Calculate net balance (sum of all accessible account balances)
-    net_balance = calculate_net_balance(db, household_id, account_ids)
+    net_balance = calculate_net_balance(db, household_id, current_user_id, account_ids)
 
     return MonthlySummary(
         month=month,
@@ -193,15 +194,23 @@ def calculate_cumulative_settlement(
 def calculate_net_balance(
     db: Session,
     household_id: UUID,
+    current_user_id: UUID,
     account_ids: list[UUID] | None = None,
 ) -> int:
     """
     Calculate total net balance from account balances.
-    If account_ids is provided, only sum those accounts.
+    Only includes:
+    - Accounts owned by the current user
+    - Accounts from other users with is_shared_visible = True
+    If account_ids is provided, only sum those accounts (still respecting visibility).
     """
     query = db.query(func.sum(Account.balance)).filter(
         Account.household_id == household_id,
         Account.balance.isnot(None),
+        or_(
+            Account.owner_user_id == current_user_id,
+            Account.is_shared_visible == True,
+        ),
     )
 
     if account_ids:
