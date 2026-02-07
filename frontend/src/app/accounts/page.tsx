@@ -127,6 +127,10 @@ export default function AccountsPage() {
 
   const isOwnAccount = (account: Account) => account.owner_user_id === user?.id;
 
+  const handleAccountClick = (accountId: string) => {
+    router.push(`/entries?account_ids=${accountId}`);
+  };
+
   if (authLoading || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -170,7 +174,11 @@ export default function AccountsPage() {
           ) : (
             <div className="space-y-3">
               {myAccounts.map(account => (
-                <div key={account.id} className="card">
+                <div
+                  key={account.id}
+                  className="card cursor-pointer hover:shadow-lg transition-shadow"
+                  onClick={() => handleAccountClick(account.id)}
+                >
                   <div className="flex justify-between items-start">
                     <div>
                       <div className="flex items-center gap-2">
@@ -193,7 +201,7 @@ export default function AccountsPage() {
                         {formatCurrency(account.balance)}
                       </p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => openModal(account)}
                         className="text-sm text-blue-600 hover:underline"
@@ -220,7 +228,11 @@ export default function AccountsPage() {
             <h2 className="text-lg font-semibold mb-4">공유된 계좌</h2>
             <div className="space-y-3">
               {sharedAccounts.map(account => (
-                <div key={account.id} className="card bg-gray-50">
+                <div
+                  key={account.id}
+                  className="card bg-gray-50 cursor-pointer hover:shadow-lg transition-shadow"
+                  onClick={() => handleAccountClick(account.id)}
+                >
                   <div className="flex justify-between items-start">
                     <div>
                       <div className="flex items-center gap-2">

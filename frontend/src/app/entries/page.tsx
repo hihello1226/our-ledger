@@ -1,15 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { entriesAPI, householdAPI, accountsAPI, Entry, Account, EntryCreateData } from '@/lib/api';
+import { entriesAPI, householdAPI, accountsAPI, Entry, Account, EntryCreateData, EntryListResponse, EntrySummary as EntrySummaryType } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import FilterBar, { FilterState } from '@/components/filters/FilterBar';
+import EntrySummary from '@/components/EntrySummary';
+import EntryListView, { ViewMode } from '@/components/entries/EntryListView';
 
 type Category = {
   id: string;
   name: string;
   type: string;
+  color?: string | null;
+  icon?: string | null;
 };
 
 type Member = {
@@ -19,23 +24,64 @@ type Member = {
   role: string;
 };
 
+const getInitialMonth = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const getInitialFilters = (): FilterState => ({
+  month: getInitialMonth(),
+  dateFrom: '',
+  dateTo: '',
+  datePreset: null,
+  types: [],
+  transferType: null,
+  categoryIds: [],
+  accountIds: [],
+  amountMin: '',
+  amountMax: '',
+  memoSearch: '',
+});
+
 export default function EntriesPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [month, setMonth] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [filters, setFilters] = useState<FilterState>(getInitialFilters);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('daily');
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
+
+  // URL 쿼리 파라미터에서 초기 필터 설정
+  useEffect(() => {
+    const accountIdsParam = searchParams.get('account_ids');
+    if (accountIdsParam) {
+      setFilters(prev => ({
+        ...prev,
+        accountIds: accountIdsParam.split(','),
+      }));
+    }
+  }, [searchParams]);
+
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(50);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
+  const [hasPrev, setHasPrev] = useState(false);
+
+  // Summary state
+  const [summary, setSummary] = useState<EntrySummaryType | null>(null);
 
   // Form state
   const [formType, setFormType] = useState<'expense' | 'income' | 'transfer'>('expense');
+  const [formTransferType, setFormTransferType] = useState<string>('');
   const [formAmount, setFormAmount] = useState('');
   const [formDate, setFormDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [formTime, setFormTime] = useState('');
@@ -55,25 +101,57 @@ export default function EntriesPage() {
     }
   }, [user, authLoading, router]);
 
-  const fetchEntries = async () => {
+  const fetchEntries = useCallback(async () => {
     try {
-      const data = await entriesAPI.list({ month });
-      setEntries(data);
+      const params: Record<string, unknown> = {
+        page,
+        page_size: pageSize,
+      };
+
+      // Add filter params - 기본은 항상 month 사용
+      if (filters.datePreset && filters.datePreset !== 'custom') {
+        params.date_preset = filters.datePreset;
+      } else if (filters.datePreset === 'custom' && (filters.dateFrom || filters.dateTo)) {
+        if (filters.dateFrom) params.date_from = filters.dateFrom;
+        if (filters.dateTo) params.date_to = filters.dateTo;
+      } else {
+        // 기본: 해당 월 데이터 표시
+        params.month = filters.month;
+      }
+
+      // 타입 필터 (멀티 선택 지원)
+      if (filters.types.length > 0 && filters.types.length < 3) {
+        params.types = filters.types;
+      }
+      // 3개 전부 선택 = 전체이므로 필터 안 함
+
+      if (filters.transferType) params.transfer_type = filters.transferType;
+      if (filters.categoryIds.length) params.category_ids = filters.categoryIds;
+      if (filters.accountIds.length) params.account_ids = filters.accountIds;
+      if (filters.amountMin) params.amount_min = parseInt(filters.amountMin);
+      if (filters.amountMax) params.amount_max = parseInt(filters.amountMax);
+      if (filters.memoSearch) params.memo_search = filters.memoSearch;
+
+      const data: EntryListResponse = await entriesAPI.list(params);
+      setEntries(data.entries);
+      setTotalCount(data.total_count);
+      setTotalPages(data.total_pages);
+      setHasNext(data.has_next);
+      setHasPrev(data.has_prev);
+      setSummary(data.summary);
     } catch (err) {
       console.error(err);
     }
-  };
+  }, [filters, page, pageSize]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [entriesData, categoriesData, membersData, accountsData] = await Promise.all([
-          entriesAPI.list({ month }),
+        const [categoriesData, membersData, accountsData] = await Promise.all([
           entriesAPI.getCategories(),
           householdAPI.getMembers(),
           accountsAPI.list(),
         ]);
-        setEntries(entriesData);
         setCategories(categoriesData);
         setMembers(membersData);
         setAccounts(accountsData);
@@ -93,14 +171,17 @@ export default function EntriesPage() {
     if (user) {
       fetchData();
     }
-  }, [user, month]);
+  }, [user]);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('ko-KR').format(amount) + '원';
-  };
+  useEffect(() => {
+    if (user && !loading) {
+      fetchEntries();
+    }
+  }, [user, loading, fetchEntries]);
 
   const resetForm = () => {
     setFormType('expense');
+    setFormTransferType('');
     setFormAmount('');
     setFormDate(new Date().toISOString().split('T')[0]);
     setFormTime('');
@@ -122,6 +203,7 @@ export default function EntriesPage() {
     if (entry) {
       setEditingEntry(entry);
       setFormType(entry.type as 'expense' | 'income' | 'transfer');
+      setFormTransferType(entry.transfer_type || '');
       setFormAmount(String(entry.amount));
       setFormDate(entry.date);
       if (entry.occurred_at) {
@@ -171,6 +253,7 @@ export default function EntriesPage() {
 
       const data: EntryCreateData = {
         type: formType,
+        transfer_type: formType === 'transfer' && formTransferType ? formTransferType : undefined,
         amount: Number(formAmount),
         date: formDate,
         occurred_at,
@@ -210,34 +293,14 @@ export default function EntriesPage() {
     }
   };
 
-  const handlePrevMonth = () => {
-    const [year, mon] = month.split('-').map(Number);
-    const date = new Date(year, mon - 2, 1);
-    setMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+  const handleFilterChange = (newFilters: Partial<FilterState>) => {
+    setFilters((prev) => ({ ...prev, ...newFilters }));
+    setPage(1); // Reset to first page when filters change
   };
 
-  const handleNextMonth = () => {
-    const [year, mon] = month.split('-').map(Number);
-    const date = new Date(year, mon, 1);
-    setMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
-  };
-
-  const getEntryTypeLabel = (type: string) => {
-    switch (type) {
-      case 'expense': return '지출';
-      case 'income': return '수입';
-      case 'transfer': return '이체';
-      default: return type;
-    }
-  };
-
-  const getEntryTypeColor = (type: string) => {
-    switch (type) {
-      case 'expense': return 'bg-red-100 text-red-700';
-      case 'income': return 'bg-green-100 text-green-700';
-      case 'transfer': return 'bg-purple-100 text-purple-700';
-      default: return 'bg-gray-100 text-gray-700';
-    }
+  const handleResetFilters = () => {
+    setFilters(getInitialFilters());
+    setPage(1);
   };
 
   if (authLoading || loading) {
@@ -272,77 +335,74 @@ export default function EntriesPage() {
 
       {/* Main */}
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-        {/* Month Selector */}
-        <div className="flex items-center justify-center gap-4">
-          <button onClick={handlePrevMonth} className="p-2 hover:bg-gray-200 rounded">
-            &lt;
-          </button>
-          <span className="text-lg font-semibold">{month}</span>
-          <button onClick={handleNextMonth} className="p-2 hover:bg-gray-200 rounded">
-            &gt;
-          </button>
+        {/* Filter Bar */}
+        <FilterBar
+          filters={filters}
+          categories={categories}
+          accounts={accounts}
+          onFilterChange={handleFilterChange}
+          onReset={handleResetFilters}
+        />
+
+        {/* Entry Summary */}
+        {summary && <EntrySummary summary={summary} />}
+
+        {/* Results Summary */}
+        <div className="flex items-center justify-between text-sm text-gray-600">
+          <span>총 {totalCount.toLocaleString()}건</span>
+          {totalPages > 1 && (
+            <span>{page} / {totalPages} 페이지</span>
+          )}
         </div>
 
         {/* Entries List */}
-        <div className="space-y-3">
-          {entries.length === 0 ? (
-            <div className="card text-center text-gray-500">
-              이번 달 거래 내역이 없습니다
-            </div>
-          ) : (
-            entries.map((entry) => (
-              <div
-                key={entry.id}
-                className="card flex items-center justify-between cursor-pointer hover:shadow-lg transition-shadow"
-                onClick={() => handleOpenForm(entry)}
-              >
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-sm px-2 py-0.5 rounded ${getEntryTypeColor(entry.type)}`}>
-                      {getEntryTypeLabel(entry.type)}
-                    </span>
-                    {entry.shared && (
-                      <span className="text-sm px-2 py-0.5 rounded bg-blue-100 text-blue-700">
-                        공동
-                      </span>
-                    )}
-                    {entry.type !== 'transfer' && (
-                      <span className="text-sm text-gray-500">{entry.category_name || '미분류'}</span>
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {entry.date} · {entry.payer_name}
-                    {entry.account_name && ` · ${entry.account_name}`}
-                    {entry.type === 'transfer' && entry.transfer_from_account_name && entry.transfer_to_account_name && (
-                      <span className="text-purple-600">
-                        {' '}({entry.transfer_from_account_name} → {entry.transfer_to_account_name})
-                      </span>
-                    )}
-                    {entry.memo && ` · ${entry.memo}`}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className={`text-lg font-bold ${
-                    entry.type === 'expense' ? 'text-red-600' :
-                    entry.type === 'income' ? 'text-green-600' :
-                    'text-purple-600'
-                  }`}>
-                    {entry.type === 'expense' ? '-' : entry.type === 'income' ? '+' : ''}{formatCurrency(entry.amount)}
-                  </span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(entry.id);
-                    }}
-                    className="text-gray-400 hover:text-red-600"
-                  >
-                    x
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+        <EntryListView
+          entries={entries}
+          categories={categories}
+          viewMode={viewMode}
+          currentMonth={filters.month}
+          onViewModeChange={setViewMode}
+          onMonthChange={(month) => handleFilterChange({ month, datePreset: null, dateFrom: '', dateTo: '' })}
+          onEditEntry={handleOpenForm}
+          onDeleteEntry={handleDelete}
+        />
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2">
+            <button
+              onClick={() => setPage(1)}
+              disabled={!hasPrev}
+              className="px-3 py-2 text-sm rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              &lt;&lt;
+            </button>
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={!hasPrev}
+              className="px-3 py-2 text-sm rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              &lt;
+            </button>
+            <span className="px-4 py-2 text-sm text-gray-600">
+              {page} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={!hasNext}
+              className="px-3 py-2 text-sm rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              &gt;
+            </button>
+            <button
+              onClick={() => setPage(totalPages)}
+              disabled={!hasNext}
+              className="px-3 py-2 text-sm rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              &gt;&gt;
+            </button>
+          </div>
+        )}
       </main>
 
       {/* Form Modal */}
@@ -367,6 +427,7 @@ export default function EntriesPage() {
                   onClick={() => {
                     setFormType('expense');
                     setFormCategoryId('');
+                    setFormTransferType('');
                   }}
                   className={`flex-1 py-2 rounded-lg font-medium ${
                     formType === 'expense'
@@ -381,6 +442,7 @@ export default function EntriesPage() {
                   onClick={() => {
                     setFormType('income');
                     setFormCategoryId('');
+                    setFormTransferType('');
                   }}
                   className={`flex-1 py-2 rounded-lg font-medium ${
                     formType === 'income'
@@ -406,6 +468,53 @@ export default function EntriesPage() {
                   이체
                 </button>
               </div>
+
+              {/* Transfer Type Selection (only for transfer) */}
+              {formType === 'transfer' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">이체 유형</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormTransferType('internal')}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium ${
+                        formTransferType === 'internal'
+                          ? 'bg-purple-100 text-purple-700 border-2 border-purple-500'
+                          : 'bg-gray-100 text-gray-700'
+                      }`}
+                    >
+                      내부 이체
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormTransferType('external_out')}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium ${
+                        formTransferType === 'external_out'
+                          ? 'bg-orange-100 text-orange-700 border-2 border-orange-500'
+                          : 'bg-gray-100 text-gray-700'
+                      }`}
+                    >
+                      외부 송금
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormTransferType('external_in')}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium ${
+                        formTransferType === 'external_in'
+                          ? 'bg-teal-100 text-teal-700 border-2 border-teal-500'
+                          : 'bg-gray-100 text-gray-700'
+                      }`}
+                    >
+                      외부 입금
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {formTransferType === 'internal' && '내 계좌 간 이동 (정산에서 제외)'}
+                    {formTransferType === 'external_out' && '외부로 송금 (지출로 처리)'}
+                    {formTransferType === 'external_in' && '외부에서 입금 (수입으로 처리)'}
+                  </p>
+                </div>
+              )}
 
               {/* Amount */}
               <div>

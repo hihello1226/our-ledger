@@ -1,10 +1,12 @@
 from uuid import UUID
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import Optional
+import math
 
 from app.core.database import get_db
-from app.schemas.entry import EntryCreate, EntryUpdate, EntryResponse
+from app.schemas.entry import EntryCreate, EntryUpdate, EntryResponse, EntryListResponse
 from app.schemas.category import CategoryResponse
 from app.services.auth import get_current_user
 from app.services.household import get_user_household
@@ -21,12 +23,13 @@ from app.models import User
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
 
-def get_entry_response(entry) -> EntryResponse:
+def get_entry_response(entry, balance_after: int | None = None) -> EntryResponse:
     return EntryResponse(
         id=entry.id,
         household_id=entry.household_id,
         created_by_user_id=entry.created_by_user_id,
         type=entry.type,
+        transfer_type=entry.transfer_type,
         amount=entry.amount,
         date=entry.date,
         occurred_at=entry.occurred_at,
@@ -48,19 +51,31 @@ def get_entry_response(entry) -> EntryResponse:
         transfer_to_account_name=(
             entry.transfer_to_account.name if entry.transfer_to_account else None
         ),
+        balance_after=balance_after,
     )
 
 
-@router.get("", response_model=list[EntryResponse])
+@router.get("", response_model=EntryListResponse)
 def list_entries(
     month: str | None = Query(None, description="YYYY-MM format"),
+    date_from: date | None = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: date | None = Query(None, description="End date (YYYY-MM-DD)"),
+    date_preset: str | None = Query(None, description="today | this_week | this_month"),
     category_id: UUID | None = None,
+    category_ids: str | None = Query(None, description="Comma-separated category UUIDs"),
     payer_member_id: UUID | None = None,
     shared: bool | None = None,
     type: str | None = Query(None, description="expense | income | transfer"),
-    account_ids: str | None = Query(None, description="Comma-separated UUIDs"),
+    types: str | None = Query(None, description="Comma-separated types: expense,income,transfer"),
+    transfer_type: str | None = Query(None, description="internal | external_out | external_in"),
+    account_ids: str | None = Query(None, description="Comma-separated account UUIDs"),
+    amount_min: int | None = Query(None, description="Minimum amount"),
+    amount_max: int | None = Query(None, description="Maximum amount"),
+    memo_search: str | None = Query(None, description="Search memo text"),
     sort_by: str = Query("occurred_at", description="occurred_at | amount"),
     sort_order: str = Query("desc", description="asc | desc"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -82,11 +97,47 @@ def list_entries(
                 detail="Invalid account_ids format",
             )
 
-    # Validate type
+    # Parse category_ids
+    parsed_category_ids = None
+    if category_ids:
+        try:
+            parsed_category_ids = [UUID(cid.strip()) for cid in category_ids.split(",")]
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid category_ids format",
+            )
+
+    # Parse types (multi-select)
+    parsed_types = None
+    if types:
+        parsed_types = [t.strip() for t in types.split(",")]
+        for t in parsed_types:
+            if t not in ("expense", "income", "transfer"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Types must be 'expense', 'income', or 'transfer'",
+                )
+
+    # Validate type (single)
     if type and type not in ("expense", "income", "transfer"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Type must be 'expense', 'income', or 'transfer'",
+        )
+
+    # Validate transfer_type
+    if transfer_type and transfer_type not in ("internal", "external_out", "external_in"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="transfer_type must be 'internal', 'external_out', or 'external_in'",
+        )
+
+    # Validate date_preset
+    if date_preset and date_preset not in ("today", "this_week", "this_month"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="date_preset must be 'today', 'this_week', or 'this_month'",
         )
 
     # Validate sort_by
@@ -103,19 +154,42 @@ def list_entries(
             detail="sort_order must be 'asc' or 'desc'",
         )
 
-    entries = get_entries(
+    entries, total_count, summary, balance_map = get_entries(
         db,
         household.id,
         month=month,
+        date_from=date_from,
+        date_to=date_to,
+        date_preset=date_preset,
         category_id=category_id,
+        category_ids=parsed_category_ids,
         payer_member_id=payer_member_id,
         shared=shared,
         entry_type=type,
+        entry_types=parsed_types,
+        transfer_type=transfer_type,
         account_ids=parsed_account_ids,
+        amount_min=amount_min,
+        amount_max=amount_max,
+        memo_search=memo_search,
         sort_by=sort_by,
         sort_order=sort_order,
+        page=page,
+        page_size=page_size,
     )
-    return [get_entry_response(e) for e in entries]
+
+    total_pages = math.ceil(total_count / page_size) if total_count > 0 else 1
+
+    return EntryListResponse(
+        entries=[get_entry_response(e, balance_map.get(e.id)) for e in entries],
+        total_count=total_count,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        has_next=page < total_pages,
+        has_prev=page > 1,
+        summary=summary,
+    )
 
 
 @router.post("", response_model=EntryResponse, status_code=status.HTTP_201_CREATED)

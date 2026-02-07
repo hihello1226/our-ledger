@@ -15,6 +15,8 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     type: Mapped[str] = mapped_column(String(20), nullable=False)  # expense | income
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    color: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # hex color
+    icon: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # emoji
 
     household: Mapped[Optional["Household"]] = relationship(
         "Household", back_populates="categories"

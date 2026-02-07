@@ -96,6 +96,7 @@ export const householdAPI = {
 export interface Entry {
   id: string;
   type: string;
+  transfer_type: string | null;
   amount: number;
   date: string;
   occurred_at: string | null;
@@ -111,10 +112,20 @@ export interface Entry {
   transfer_from_account_name: string | null;
   transfer_to_account_id: string | null;
   transfer_to_account_name: string | null;
+  balance_after: number | null;
+}
+
+export interface EntrySummary {
+  total_income: number;
+  total_expense: number;
+  total_transfer_in: number;
+  total_transfer_out: number;
+  net_balance: number;
 }
 
 export interface EntryCreateData {
   type: string;
+  transfer_type?: string;
   amount: number;
   date: string;
   occurred_at?: string;
@@ -127,30 +138,65 @@ export interface EntryCreateData {
   transfer_to_account_id?: string;
 }
 
+export interface EntryListParams {
+  month?: string;
+  date_from?: string;
+  date_to?: string;
+  date_preset?: string;
+  category_id?: string;
+  category_ids?: string[];
+  payer_member_id?: string;
+  shared?: boolean;
+  type?: string;
+  types?: string[];
+  transfer_type?: string;
+  account_ids?: string[];
+  amount_min?: number;
+  amount_max?: number;
+  memo_search?: string;
+  sort_by?: string;
+  sort_order?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export interface EntryListResponse {
+  entries: Entry[];
+  total_count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+  summary: EntrySummary;
+}
+
 // Entries API
 export const entriesAPI = {
-  list: (params?: {
-    month?: string;
-    category_id?: string;
-    payer_member_id?: string;
-    shared?: boolean;
-    type?: string;
-    account_ids?: string[];
-    sort_by?: string;
-    sort_order?: string;
-  }) => {
+  list: (params?: EntryListParams) => {
     const searchParams = new URLSearchParams();
     if (params?.month) searchParams.append('month', params.month);
+    if (params?.date_from) searchParams.append('date_from', params.date_from);
+    if (params?.date_to) searchParams.append('date_to', params.date_to);
+    if (params?.date_preset) searchParams.append('date_preset', params.date_preset);
     if (params?.category_id) searchParams.append('category_id', params.category_id);
+    if (params?.category_ids?.length) searchParams.append('category_ids', params.category_ids.join(','));
     if (params?.payer_member_id) searchParams.append('payer_member_id', params.payer_member_id);
     if (params?.shared !== undefined) searchParams.append('shared', String(params.shared));
     if (params?.type) searchParams.append('type', params.type);
+    if (params?.types?.length) searchParams.append('types', params.types.join(','));
+    if (params?.transfer_type) searchParams.append('transfer_type', params.transfer_type);
     if (params?.account_ids?.length) searchParams.append('account_ids', params.account_ids.join(','));
+    if (params?.amount_min !== undefined) searchParams.append('amount_min', String(params.amount_min));
+    if (params?.amount_max !== undefined) searchParams.append('amount_max', String(params.amount_max));
+    if (params?.memo_search) searchParams.append('memo_search', params.memo_search);
     if (params?.sort_by) searchParams.append('sort_by', params.sort_by);
     if (params?.sort_order) searchParams.append('sort_order', params.sort_order);
+    if (params?.page) searchParams.append('page', String(params.page));
+    if (params?.page_size) searchParams.append('page_size', String(params.page_size));
 
     const query = searchParams.toString();
-    return fetchAPI<Entry[]>(`/api/entries${query ? `?${query}` : ''}`);
+    return fetchAPI<EntryListResponse>(`/api/entries${query ? `?${query}` : ''}`);
   },
 
   create: (data: EntryCreateData) =>
@@ -163,7 +209,7 @@ export const entriesAPI = {
     fetchAPI(`/api/entries/${id}`, { method: 'DELETE' }),
 
   getCategories: () =>
-    fetchAPI<Array<{ id: string; name: string; type: string }>>('/api/entries/categories'),
+    fetchAPI<Array<{ id: string; name: string; type: string; color?: string | null; icon?: string | null }>>('/api/entries/categories'),
 };
 
 // Account types

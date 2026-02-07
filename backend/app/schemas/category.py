@@ -15,6 +15,8 @@ class CategoryResponse(CategoryBase):
     id: UUID
     household_id: UUID | None = None
     sort_order: int
+    color: str | None = None
+    icon: str | None = None
 
     class Config:
         from_attributes = True

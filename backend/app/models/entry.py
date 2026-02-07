@@ -17,6 +17,7 @@ class Entry(Base):
         ForeignKey("users.id"), nullable=False
     )
     type: Mapped[str] = mapped_column(String(20), nullable=False)  # expense | income | transfer
+    transfer_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # internal | external_out | external_in
     amount: Mapped[int] = mapped_column(Integer, nullable=False)  # KRW (integer)
     date: Mapped[date] = mapped_column(Date, nullable=False)  # Kept for backward compatibility
     occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)  # New: datetime for time-based sorting
