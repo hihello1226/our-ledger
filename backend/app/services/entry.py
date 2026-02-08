@@ -155,12 +155,14 @@ def calculate_running_balances(
 def get_entries(
     db: Session,
     household_id: UUID,
+    current_user_id: UUID | None = None,
     month: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     date_preset: str | None = None,
     category_id: UUID | None = None,
     category_ids: list[UUID] | None = None,
+    include_uncategorized: bool = False,
     payer_member_id: UUID | None = None,
     shared: bool | None = None,
     entry_type: str | None = None,
@@ -177,6 +179,28 @@ def get_entries(
 ) -> tuple[list[Entry], int, EntrySummary, dict[UUID, int]]:
     """Get entries with filtering and pagination. Returns (entries, total_count, summary, balance_map)."""
     query = db.query(Entry).filter(Entry.household_id == household_id)
+
+    # Filter by account visibility: only show entries from
+    # - accounts with is_shared_visible=True
+    # - accounts owned by current user (regardless of is_shared_visible)
+    # - entries without an account (account_id is NULL)
+    if current_user_id:
+        # Get list of hidden account IDs (accounts not visible to this user)
+        hidden_accounts = db.query(Account.id).filter(
+            Account.is_shared_visible == False,
+            Account.owner_user_id != current_user_id,
+        ).all()
+        hidden_account_id_list = [a.id for a in hidden_accounts]
+
+        # Exclude entries linked to hidden accounts
+        if hidden_account_id_list:
+            query = query.filter(
+                # Entry must NOT have account_id in hidden list
+                or_(
+                    Entry.account_id == None,
+                    ~Entry.account_id.in_(hidden_account_id_list),
+                )
+            )
 
     # Date preset takes priority over explicit date_from/date_to
     if date_preset:
@@ -201,8 +225,21 @@ def get_entries(
         )
 
     # Category filter (multi-select takes priority)
-    if category_ids:
-        query = query.filter(Entry.category_id.in_(category_ids))
+    if category_ids or include_uncategorized:
+        if include_uncategorized and category_ids:
+            # 미분류 + 특정 카테고리 필터
+            query = query.filter(
+                or_(
+                    Entry.category_id == None,
+                    Entry.category_id.in_(category_ids),
+                )
+            )
+        elif include_uncategorized:
+            # 미분류만 필터
+            query = query.filter(Entry.category_id == None)
+        elif category_ids:
+            # 특정 카테고리만 필터
+            query = query.filter(Entry.category_id.in_(category_ids))
     elif category_id:
         query = query.filter(Entry.category_id == category_id)
 
@@ -248,17 +285,18 @@ def get_entries(
     all_filtered_entries = query.all()
     summary = calculate_summary(all_filtered_entries)
 
-    # Sorting
+    # Sorting - use date as primary, occurred_at as secondary
     if sort_by == "amount":
-        sort_col = Entry.amount
+        if sort_order == "asc":
+            query = query.order_by(Entry.amount.asc(), Entry.date.desc(), Entry.created_at.desc())
+        else:
+            query = query.order_by(Entry.amount.desc(), Entry.date.desc(), Entry.created_at.desc())
     else:
-        # Default to occurred_at, fallback to date then created_at
-        sort_col = Entry.occurred_at
-
-    if sort_order == "asc":
-        query = query.order_by(sort_col.asc().nullslast(), Entry.date.asc(), Entry.created_at.asc())
-    else:
-        query = query.order_by(sort_col.desc().nullsfirst(), Entry.date.desc(), Entry.created_at.desc())
+        # Default to date first, then occurred_at for same-day ordering
+        if sort_order == "asc":
+            query = query.order_by(Entry.date.asc(), Entry.occurred_at.asc().nullslast(), Entry.created_at.asc())
+        else:
+            query = query.order_by(Entry.date.desc(), Entry.occurred_at.desc().nullslast(), Entry.created_at.desc())
 
     # Pagination
     offset = (page - 1) * page_size

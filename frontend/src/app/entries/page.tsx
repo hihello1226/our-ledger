@@ -1,13 +1,17 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { entriesAPI, householdAPI, accountsAPI, Entry, Account, EntryCreateData, EntryListResponse, EntrySummary as EntrySummaryType } from '@/lib/api';
+import { entriesAPI, householdAPI, accountsAPI, Entry, Account, EntryCreateData, EntryListParams } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import FilterBar, { FilterState } from '@/components/filters/FilterBar';
 import EntrySummary from '@/components/EntrySummary';
 import EntryListView, { ViewMode } from '@/components/entries/EntryListView';
+import FloatingActionButton from '@/components/ui/FloatingActionButton';
+import BulkActionBar from '@/components/entries/BulkActionBar';
+import { useInfiniteEntries } from '@/hooks/useInfiniteEntries';
+import { useBulkSelection } from '@/hooks/useBulkSelection';
 
 type Category = {
   id: string;
@@ -44,16 +48,28 @@ const getInitialFilters = (): FilterState => ({
 });
 
 export default function EntriesPage() {
-  const [entries, setEntries] = useState<Entry[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [filters, setFilters] = useState<FilterState>(getInitialFilters);
-  const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('daily');
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const router = useRouter();
+
+  // Bulk selection hook
+  const {
+    selectedIds,
+    isSelectionMode,
+    toggleSelection,
+    selectAll,
+    deselectAll,
+    toggleSelectionMode,
+    exitSelectionMode,
+    selectedCount,
+  } = useBulkSelection();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
 
@@ -68,16 +84,48 @@ export default function EntriesPage() {
     }
   }, [searchParams]);
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(50);
-  const [totalCount, setTotalCount] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-  const [hasNext, setHasNext] = useState(false);
-  const [hasPrev, setHasPrev] = useState(false);
+  // Convert FilterState to EntryListParams
+  const entryListParams = useMemo((): EntryListParams => {
+    const params: EntryListParams = {};
 
-  // Summary state
-  const [summary, setSummary] = useState<EntrySummaryType | null>(null);
+    if (filters.datePreset && filters.datePreset !== 'custom') {
+      params.date_preset = filters.datePreset;
+    } else if (filters.datePreset === 'custom' && (filters.dateFrom || filters.dateTo)) {
+      if (filters.dateFrom) params.date_from = filters.dateFrom;
+      if (filters.dateTo) params.date_to = filters.dateTo;
+    } else {
+      params.month = filters.month;
+    }
+
+    if (filters.types.length > 0 && filters.types.length < 3) {
+      params.types = filters.types;
+    }
+
+    if (filters.transferType) params.transfer_type = filters.transferType;
+    if (filters.categoryIds.length) params.category_ids = filters.categoryIds;
+    if (filters.accountIds.length) params.account_ids = filters.accountIds;
+    if (filters.amountMin) params.amount_min = parseInt(filters.amountMin);
+    if (filters.amountMax) params.amount_max = parseInt(filters.amountMax);
+    if (filters.memoSearch) params.memo_search = filters.memoSearch;
+
+    return params;
+  }, [filters]);
+
+  // Infinite scroll hook
+  const {
+    entries,
+    summary,
+    loading,
+    loadingMore,
+    hasMore,
+    totalCount,
+    reset: resetEntries,
+    sentinelRef,
+  } = useInfiniteEntries({
+    filters: entryListParams,
+    pageSize: 30,
+    enabled: !!user && !dataLoading,
+  });
 
   // Form state
   const [formType, setFormType] = useState<'expense' | 'income' | 'transfer'>('expense');
@@ -101,49 +149,6 @@ export default function EntriesPage() {
     }
   }, [user, authLoading, router]);
 
-  const fetchEntries = useCallback(async () => {
-    try {
-      const params: Record<string, unknown> = {
-        page,
-        page_size: pageSize,
-      };
-
-      // Add filter params - 기본은 항상 month 사용
-      if (filters.datePreset && filters.datePreset !== 'custom') {
-        params.date_preset = filters.datePreset;
-      } else if (filters.datePreset === 'custom' && (filters.dateFrom || filters.dateTo)) {
-        if (filters.dateFrom) params.date_from = filters.dateFrom;
-        if (filters.dateTo) params.date_to = filters.dateTo;
-      } else {
-        // 기본: 해당 월 데이터 표시
-        params.month = filters.month;
-      }
-
-      // 타입 필터 (멀티 선택 지원)
-      if (filters.types.length > 0 && filters.types.length < 3) {
-        params.types = filters.types;
-      }
-      // 3개 전부 선택 = 전체이므로 필터 안 함
-
-      if (filters.transferType) params.transfer_type = filters.transferType;
-      if (filters.categoryIds.length) params.category_ids = filters.categoryIds;
-      if (filters.accountIds.length) params.account_ids = filters.accountIds;
-      if (filters.amountMin) params.amount_min = parseInt(filters.amountMin);
-      if (filters.amountMax) params.amount_max = parseInt(filters.amountMax);
-      if (filters.memoSearch) params.memo_search = filters.memoSearch;
-
-      const data: EntryListResponse = await entriesAPI.list(params);
-      setEntries(data.entries);
-      setTotalCount(data.total_count);
-      setTotalPages(data.total_pages);
-      setHasNext(data.has_next);
-      setHasPrev(data.has_prev);
-      setSummary(data.summary);
-    } catch (err) {
-      console.error(err);
-    }
-  }, [filters, page, pageSize]);
-
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -164,7 +169,7 @@ export default function EntriesPage() {
       } catch (err) {
         console.error(err);
       } finally {
-        setLoading(false);
+        setDataLoading(false);
       }
     };
 
@@ -172,12 +177,6 @@ export default function EntriesPage() {
       fetchData();
     }
   }, [user]);
-
-  useEffect(() => {
-    if (user && !loading) {
-      fetchEntries();
-    }
-  }, [user, loading, fetchEntries]);
 
   const resetForm = () => {
     setFormType('expense');
@@ -272,7 +271,7 @@ export default function EntriesPage() {
         await entriesAPI.create(data);
       }
 
-      await fetchEntries();
+      resetEntries();
       setShowForm(false);
       resetForm();
     } catch (err) {
@@ -283,27 +282,47 @@ export default function EntriesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('삭제하시겠습니까?')) return;
-
     try {
       await entriesAPI.delete(id);
-      await fetchEntries();
+      resetEntries();
     } catch (err) {
       alert('삭제에 실패했습니다');
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedCount === 0) return;
+
+    const confirmed = confirm(`${selectedCount}개의 거래를 삭제하시겠습니까?`);
+    if (!confirmed) return;
+
+    setBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      await entriesAPI.bulkDelete(ids);
+      resetEntries();
+      exitSelectionMode();
+    } catch (err) {
+      alert('삭제에 실패했습니다');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const handleSelectAll = () => {
+    const allIds = entries.map(e => e.id);
+    selectAll(allIds);
+  };
+
   const handleFilterChange = (newFilters: Partial<FilterState>) => {
     setFilters((prev) => ({ ...prev, ...newFilters }));
-    setPage(1); // Reset to first page when filters change
   };
 
   const handleResetFilters = () => {
     setFilters(getInitialFilters());
-    setPage(1);
   };
 
-  if (authLoading || loading) {
+  if (authLoading || dataLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -316,20 +335,37 @@ export default function EntriesPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className={`min-h-screen bg-gray-50 ${isSelectionMode ? 'pb-24' : 'pb-20'}`}>
       {/* Header */}
-      <header className="bg-white shadow-sm">
+      <header className="bg-white shadow-sm sticky top-0 z-40">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/dashboard" className="text-blue-600 hover:underline">
-            &lt; 대시보드
-          </Link>
-          <h1 className="text-xl font-bold text-gray-900">거래 내역</h1>
-          <button
-            onClick={() => handleOpenForm()}
-            className="btn btn-primary"
-          >
-            + 추가
-          </button>
+          {isSelectionMode ? (
+            <>
+              <button
+                onClick={exitSelectionMode}
+                className="text-gray-600 hover:text-gray-900"
+              >
+                취소
+              </button>
+              <h1 className="text-xl font-bold text-gray-900">
+                {selectedCount}개 선택됨
+              </h1>
+              <div className="w-16"></div>
+            </>
+          ) : (
+            <>
+              <Link href="/dashboard" className="text-blue-600 hover:underline">
+                &lt; 대시보드
+              </Link>
+              <h1 className="text-xl font-bold text-gray-900">거래 내역</h1>
+              <button
+                onClick={toggleSelectionMode}
+                className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+              >
+                선택
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -350,60 +386,73 @@ export default function EntriesPage() {
         {/* Results Summary */}
         <div className="flex items-center justify-between text-sm text-gray-600">
           <span>총 {totalCount.toLocaleString()}건</span>
-          {totalPages > 1 && (
-            <span>{page} / {totalPages} 페이지</span>
+          {entries.length > 0 && entries.length < totalCount && (
+            <span>{entries.length}건 표시 중</span>
           )}
         </div>
 
-        {/* Entries List */}
-        <EntryListView
-          entries={entries}
-          categories={categories}
-          viewMode={viewMode}
-          currentMonth={filters.month}
-          onViewModeChange={setViewMode}
-          onMonthChange={(month) => handleFilterChange({ month, datePreset: null, dateFrom: '', dateTo: '' })}
-          onEditEntry={handleOpenForm}
-          onDeleteEntry={handleDelete}
-        />
+        {/* Loading State */}
+        {loading && entries.length === 0 && (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          </div>
+        )}
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2">
-            <button
-              onClick={() => setPage(1)}
-              disabled={!hasPrev}
-              className="px-3 py-2 text-sm rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              &lt;&lt;
-            </button>
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={!hasPrev}
-              className="px-3 py-2 text-sm rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              &lt;
-            </button>
-            <span className="px-4 py-2 text-sm text-gray-600">
-              {page} / {totalPages}
-            </span>
-            <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={!hasNext}
-              className="px-3 py-2 text-sm rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              &gt;
-            </button>
-            <button
-              onClick={() => setPage(totalPages)}
-              disabled={!hasNext}
-              className="px-3 py-2 text-sm rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              &gt;&gt;
-            </button>
+        {/* Entries List */}
+        {!loading && (
+          <EntryListView
+            entries={entries}
+            categories={categories}
+            viewMode={viewMode}
+            currentMonth={filters.month}
+            onViewModeChange={setViewMode}
+            onMonthChange={(month) => handleFilterChange({ month, datePreset: null, dateFrom: '', dateTo: '' })}
+            onEditEntry={handleOpenForm}
+            onDeleteEntry={handleDelete}
+            isSelectionMode={isSelectionMode}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelection}
+          />
+        )}
+
+        {/* Load More Sentinel */}
+        {hasMore && !loading && (
+          <div
+            ref={sentinelRef}
+            className="flex items-center justify-center py-4"
+          >
+            {loadingMore && (
+              <div className="flex items-center gap-2 text-gray-500">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                <span className="text-sm">더 불러오는 중...</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* End of List */}
+        {!hasMore && entries.length > 0 && (
+          <div className="text-center py-4 text-sm text-gray-400">
+            모든 거래를 불러왔습니다
           </div>
         )}
       </main>
+
+      {/* FAB (선택 모드가 아닐 때만 표시) */}
+      {!isSelectionMode && <FloatingActionButton onClick={() => handleOpenForm()} />}
+
+      {/* Bulk Action Bar (선택 모드일 때 표시) */}
+      {isSelectionMode && (
+        <BulkActionBar
+          selectedCount={selectedCount}
+          totalCount={entries.length}
+          onSelectAll={handleSelectAll}
+          onDeselectAll={deselectAll}
+          onDelete={handleBulkDelete}
+          onCancel={exitSelectionMode}
+          isDeleting={bulkDeleting}
+        />
+      )}
 
       {/* Form Modal */}
       {showForm && (
@@ -591,9 +640,9 @@ export default function EntriesPage() {
               )}
 
               {/* Account (for income/expense) */}
-              {formType !== 'transfer' && accounts.length > 0 && (
+              {formType !== 'transfer' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">계좌 (선택)</label>
+                  <label className="block text-sm font-medium text-gray-700">계좌</label>
                   <select
                     value={formAccountId}
                     onChange={(e) => setFormAccountId(e.target.value)}
@@ -606,6 +655,11 @@ export default function EntriesPage() {
                       </option>
                     ))}
                   </select>
+                  {accounts.length === 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      <a href="/accounts" className="text-blue-600 hover:underline">계좌 관리</a>에서 계좌를 추가하세요
+                    </p>
+                  )}
                 </div>
               )}
 

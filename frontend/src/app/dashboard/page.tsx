@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { summaryAPI, householdAPI, accountsAPI, MonthlySummary, Account } from '@/lib/api';
+import { summaryAPI, householdAPI, accountsAPI, entriesAPI, MonthlySummary, Account, Entry } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { CategoryDonutChart, IncomeExpenseBarChart, RecentTransactions } from '@/components/charts';
 
 type Household = {
   id: string;
@@ -12,10 +13,20 @@ type Household = {
   invite_code: string;
 };
 
+type Category = {
+  id: string;
+  name: string;
+  type: string;
+  color?: string | null;
+  icon?: string | null;
+};
+
 export default function DashboardPage() {
   const [summary, setSummary] = useState<MonthlySummary | null>(null);
   const [household, setHousehold] = useState<Household | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [recentEntries, setRecentEntries] = useState<Entry[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [month, setMonth] = useState(() => {
     const now = new Date();
@@ -36,12 +47,14 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [householdData, accountsData] = await Promise.all([
+        const [householdData, accountsData, categoriesData] = await Promise.all([
           householdAPI.get(),
           accountsAPI.list(),
+          entriesAPI.getCategories(),
         ]);
         setHousehold(householdData);
         setAccounts(accountsData);
+        setCategories(categoriesData);
         if (!householdData) {
           router.push('/onboarding');
         }
@@ -60,11 +73,20 @@ export default function DashboardPage() {
       if (!user) return;
       setLoading(true);
       try {
-        const summaryData = await summaryAPI.get(
-          month,
-          selectedAccountIds.length > 0 ? selectedAccountIds : undefined
-        );
+        const [summaryData, entriesData] = await Promise.all([
+          summaryAPI.get(
+            month,
+            selectedAccountIds.length > 0 ? selectedAccountIds : undefined
+          ),
+          entriesAPI.list({
+            month,
+            page: 1,
+            page_size: 5,
+            account_ids: selectedAccountIds.length > 0 ? selectedAccountIds : undefined,
+          }),
+        ]);
         setSummary(summaryData);
+        setRecentEntries(entriesData.entries);
       } catch (err) {
         console.error(err);
       } finally {
@@ -229,6 +251,22 @@ export default function DashboardPage() {
                 </p>
               </div>
             </div>
+
+            {/* Charts Section */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <CategoryDonutChart
+                data={summary.by_category}
+                totalExpense={summary.total_expense}
+              />
+              <IncomeExpenseBarChart
+                totalIncome={summary.total_income}
+                totalExpense={summary.total_expense}
+                balance={summary.balance}
+              />
+            </div>
+
+            {/* Recent Transactions */}
+            <RecentTransactions entries={recentEntries} categories={categories} />
 
             {/* Net Balance */}
             {summary.net_balance !== 0 && (

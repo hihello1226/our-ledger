@@ -40,6 +40,7 @@ class ImportConfirmRequest(BaseModel):
     file_id: str
     column_mapping: CSVColumnMapping
     default_account_id: Optional[UUID] = None
+    default_category_id: Optional[UUID] = None
     default_payer_member_id: UUID
     skip_duplicates: bool = True
 

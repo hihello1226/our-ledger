@@ -118,6 +118,18 @@ def confirm_import(
                 detail="Invalid account_id",
             )
 
+    # Validate category_id if provided
+    if request.default_category_id:
+        from app.models import Category
+        category = db.query(Category).filter(
+            Category.id == request.default_category_id
+        ).first()
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid category_id",
+            )
+
     result = execute_import(
         db,
         request.file_id,
@@ -125,6 +137,7 @@ def confirm_import(
         current_user.id,
         request.column_mapping,
         request.default_account_id,
+        request.default_category_id,
         request.default_payer_member_id,
         request.skip_duplicates,
     )

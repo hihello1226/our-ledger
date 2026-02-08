@@ -1,6 +1,6 @@
 from uuid import UUID
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.orm import Session
 from typing import Optional
 import math
@@ -18,7 +18,7 @@ from app.services.entry import (
     delete_entry,
     get_categories,
 )
-from app.models import User
+from app.models import User, Entry
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
@@ -34,6 +34,7 @@ def get_entry_response(entry, balance_after: int | None = None) -> EntryResponse
         date=entry.date,
         occurred_at=entry.occurred_at,
         category_id=entry.category_id,
+        subcategory=entry.subcategory,
         memo=entry.memo,
         payer_member_id=entry.payer_member_id,
         shared=entry.shared,
@@ -97,16 +98,26 @@ def list_entries(
                 detail="Invalid account_ids format",
             )
 
-    # Parse category_ids
+    # Parse category_ids (supports 'uncategorized' as special value)
     parsed_category_ids = None
+    include_uncategorized = False
     if category_ids:
-        try:
-            parsed_category_ids = [UUID(cid.strip()) for cid in category_ids.split(",")]
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid category_ids format",
-            )
+        parsed_category_ids = []
+        for cid in category_ids.split(","):
+            cid = cid.strip()
+            if cid == "uncategorized":
+                include_uncategorized = True
+            else:
+                try:
+                    parsed_category_ids.append(UUID(cid))
+                except ValueError:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid category_ids format",
+                    )
+        # 'uncategorized'만 선택된 경우 빈 리스트가 될 수 있음
+        if not parsed_category_ids:
+            parsed_category_ids = None
 
     # Parse types (multi-select)
     parsed_types = None
@@ -157,12 +168,14 @@ def list_entries(
     entries, total_count, summary, balance_map = get_entries(
         db,
         household.id,
+        current_user_id=current_user.id,
         month=month,
         date_from=date_from,
         date_to=date_to,
         date_preset=date_preset,
         category_id=category_id,
         category_ids=parsed_category_ids,
+        include_uncategorized=include_uncategorized,
         payer_member_id=payer_member_id,
         shared=shared,
         entry_type=type,
@@ -280,6 +293,35 @@ def update_existing_entry(
 
     entry = update_entry(db, entry, entry_data)
     return get_entry_response(entry)
+
+
+@router.delete("/bulk")
+def bulk_delete_entries(
+    entry_ids: list[UUID] = Body(..., embed=True),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """여러 거래 일괄 삭제"""
+    household = get_user_household(db, current_user.id)
+    if not household:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="You don't belong to any household",
+        )
+
+    # 모든 entry가 해당 household에 속하는지 확인
+    entries = db.query(Entry).filter(
+        Entry.id.in_(entry_ids),
+        Entry.household_id == household.id,
+    ).all()
+
+    deleted_count = 0
+    for entry in entries:
+        db.delete(entry)
+        deleted_count += 1
+
+    db.commit()
+    return {"deleted_count": deleted_count, "message": f"{deleted_count}개 삭제됨"}
 
 
 @router.delete("/{entry_id}")

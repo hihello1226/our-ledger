@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Entry } from '@/lib/api';
+import SwipeableEntryItem from './SwipeableEntryItem';
 
 interface Category {
   id: string;
@@ -18,6 +19,9 @@ interface CalendarViewProps {
   onMonthChange: (month: string) => void;
   onEditEntry: (entry: Entry) => void;
   onDeleteEntry: (id: string) => void;
+  isSelectionMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
 }
 
 interface DayData {
@@ -37,6 +41,9 @@ export default function CalendarView({
   onMonthChange,
   onEditEntry,
   onDeleteEntry,
+  isSelectionMode = false,
+  selectedIds = new Set(),
+  onToggleSelect,
 }: CalendarViewProps) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
@@ -268,63 +275,19 @@ export default function CalendarView({
               </div>
             </div>
           </div>
-          <div className="divide-y divide-gray-100">
-            {selectedDayData.entries.map((entry) => {
-              const category = categories.find((c) => c.id === entry.category_id);
-              return (
-                <div
-                  key={entry.id}
-                  onClick={() => onEditEntry(entry)}
-                  className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-sm"
-                      style={{ backgroundColor: category?.color ? `${category.color}20` : '#F3F4F6' }}
-                    >
-                      {entry.type === 'transfer' ? '🔄' : (category?.icon || '📌')}
-                    </div>
-                    <div>
-                      <div className="font-medium text-gray-900 text-sm">
-                        {entry.type === 'transfer'
-                          ? (entry.transfer_type === 'internal' ? '내부 이체' :
-                             entry.transfer_type === 'external_out' ? '외부 송금' : '외부 입금')
-                          : (category?.name || '미분류')}
-                      </div>
-                      {entry.memo && (
-                        <div className="text-xs text-gray-500">{entry.memo}</div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`font-bold text-sm ${
-                        entry.type === 'expense' || entry.transfer_type === 'external_out'
-                          ? 'text-red-600'
-                          : entry.type === 'income' || entry.transfer_type === 'external_in'
-                          ? 'text-green-600'
-                          : 'text-purple-600'
-                      }`}
-                    >
-                      {entry.type === 'expense' || entry.transfer_type === 'external_out' ? '-' :
-                       entry.type === 'income' || entry.transfer_type === 'external_in' ? '+' : ''}
-                      {new Intl.NumberFormat('ko-KR').format(entry.amount)}원
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteEntry(entry.id);
-                      }}
-                      className="text-gray-300 hover:text-red-500"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+          <div>
+            {selectedDayData.entries.map((entry) => (
+              <SwipeableEntryItem
+                key={entry.id}
+                entry={entry}
+                categories={categories}
+                onEdit={onEditEntry}
+                onDelete={onDeleteEntry}
+                isSelectionMode={isSelectionMode}
+                isSelected={selectedIds.has(entry.id)}
+                onToggleSelect={onToggleSelect}
+              />
+            ))}
           </div>
         </div>
       )}

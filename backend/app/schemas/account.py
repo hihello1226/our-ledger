@@ -9,6 +9,7 @@ class AccountBase(BaseModel):
     name: str
     bank_name: Optional[str] = None
     type: str  # "personal" | "shared"
+    account_type: str = "checking"  # "checking" | "savings" | "deposit" | "securities" | "card"
     balance: Optional[int] = None
     is_shared_visible: bool = False
 
@@ -21,6 +22,7 @@ class AccountUpdate(BaseModel):
     name: Optional[str] = None
     bank_name: Optional[str] = None
     type: Optional[str] = None
+    account_type: Optional[str] = None
     balance: Optional[int] = None
     is_shared_visible: Optional[bool] = None
 

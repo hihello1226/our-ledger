@@ -51,6 +51,9 @@ export default function CategoryFilter({
       return '전체';
     }
     if (selectedCategoryIds.length === 1) {
+      if (selectedCategoryIds[0] === 'uncategorized') {
+        return '미분류';
+      }
       const category = categories.find((c) => c.id === selectedCategoryIds[0]);
       return category?.name || '1개 선택';
     }
@@ -93,6 +96,36 @@ export default function CategoryFilter({
             }`}
           >
             전체
+          </button>
+
+          <div className="border-t border-gray-200 my-1" />
+
+          {/* 미분류 옵션 */}
+          <button
+            type="button"
+            onClick={() => handleToggleCategory('uncategorized')}
+            className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 ${
+              selectedCategoryIds.includes('uncategorized') ? 'bg-blue-50 text-blue-700' : ''
+            }`}
+          >
+            <span
+              className={`w-4 h-4 rounded border flex items-center justify-center ${
+                selectedCategoryIds.includes('uncategorized')
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : 'border-gray-300'
+              }`}
+            >
+              {selectedCategoryIds.includes('uncategorized') && (
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              )}
+            </span>
+            <span className="text-gray-500">미분류</span>
           </button>
 
           <div className="border-t border-gray-200 my-1" />

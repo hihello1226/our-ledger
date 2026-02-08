@@ -62,6 +62,7 @@ class EntryResponse(BaseModel):
     date: date_type
     occurred_at: Optional[datetime] = None
     category_id: Optional[UUID] = None
+    subcategory: Optional[str] = None  # 소분류
     memo: Optional[str] = None
     payer_member_id: UUID
     shared: bool

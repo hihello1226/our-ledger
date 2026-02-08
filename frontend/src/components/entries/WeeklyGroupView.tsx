@@ -16,6 +16,9 @@ interface WeeklyGroupViewProps {
   categories: Category[];
   onEditEntry: (entry: Entry) => void;
   onDeleteEntry: (id: string) => void;
+  isSelectionMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
 }
 
 interface WeeklyGroup {
@@ -66,7 +69,14 @@ export default function WeeklyGroupView({
   categories,
   onEditEntry,
   onDeleteEntry,
+  isSelectionMode = false,
+  selectedIds = new Set(),
+  onToggleSelect,
 }: WeeklyGroupViewProps) {
+  // WeeklyGroupView는 요약 뷰이므로 선택 모드 미지원
+  void isSelectionMode;
+  void selectedIds;
+  void onToggleSelect;
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('ko-KR').format(Math.abs(amount));
   };

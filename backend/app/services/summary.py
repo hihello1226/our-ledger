@@ -23,12 +23,28 @@ def get_monthly_summary(
 ) -> MonthlySummary:
     year, mon = map(int, month.split("-"))
 
-    # Base query for the month
+    # Get list of hidden account IDs (accounts not visible to this user)
+    hidden_accounts = db.query(Account.id).filter(
+        Account.is_shared_visible == False,
+        Account.owner_user_id != current_user_id,
+    ).all()
+    hidden_account_id_list = [a.id for a in hidden_accounts]
+
+    # Base query for the month with visibility filter
     base_query = db.query(Entry).filter(
         Entry.household_id == household_id,
         extract("year", Entry.date) == year,
         extract("month", Entry.date) == mon,
     )
+
+    # Exclude entries linked to hidden accounts
+    if hidden_account_id_list:
+        base_query = base_query.filter(
+            or_(
+                Entry.account_id == None,
+                ~Entry.account_id.in_(hidden_account_id_list),
+            )
+        )
 
     # Apply account filter if provided
     if account_ids:

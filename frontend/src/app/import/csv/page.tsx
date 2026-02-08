@@ -7,11 +7,18 @@ import {
   importAPI,
   householdAPI,
   accountsAPI,
+  entriesAPI,
   CSVUploadResponse,
   CSVColumnMapping,
   Account,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+
+type Category = {
+  id: string;
+  name: string;
+  type: string;
+};
 
 type Member = {
   id: string;
@@ -27,6 +34,7 @@ export default function CSVImportPage() {
   const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
 
@@ -52,6 +60,7 @@ export default function CSVImportPage() {
   // Import options
   const [defaultPayerMemberId, setDefaultPayerMemberId] = useState('');
   const [defaultAccountId, setDefaultAccountId] = useState('');
+  const [defaultCategoryId, setDefaultCategoryId] = useState('');
   const [skipDuplicates, setSkipDuplicates] = useState(true);
 
   // Result state
@@ -71,12 +80,14 @@ export default function CSVImportPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [membersData, accountsData] = await Promise.all([
+        const [membersData, accountsData, categoriesData] = await Promise.all([
           householdAPI.getMembers(),
           accountsAPI.list(),
+          entriesAPI.getCategories(),
         ]);
         setMembers(membersData);
         setAccounts(accountsData);
+        setCategories(categoriesData);
 
         const currentMember = membersData.find(m => m.user_id === user?.id);
         if (currentMember) {
@@ -143,6 +154,7 @@ export default function CSVImportPage() {
         file_id: uploadResponse.file_id,
         column_mapping: columnMapping,
         default_account_id: defaultAccountId || undefined,
+        default_category_id: defaultCategoryId || undefined,
         default_payer_member_id: defaultPayerMemberId,
         skip_duplicates: skipDuplicates,
       });
@@ -420,6 +432,7 @@ export default function CSVImportPage() {
                     <th className="px-3 py-2 text-left">날짜</th>
                     <th className="px-3 py-2 text-right">금액</th>
                     <th className="px-3 py-2 text-left">유형</th>
+                    <th className="px-3 py-2 text-left">분류</th>
                     <th className="px-3 py-2 text-left">메모</th>
                     <th className="px-3 py-2 text-left">상태</th>
                   </tr>
@@ -431,6 +444,11 @@ export default function CSVImportPage() {
                       <td className="px-3 py-2">{row.date}</td>
                       <td className="px-3 py-2 text-right">{row.amount.toLocaleString()}원</td>
                       <td className="px-3 py-2">{row.type}</td>
+                      <td className="px-3 py-2">
+                        <span className={row.category ? 'text-gray-900' : 'text-gray-400'}>
+                          {row.category || '미분류'}
+                        </span>
+                      </td>
                       <td className="px-3 py-2 truncate max-w-32">{row.memo || '-'}</td>
                       <td className="px-3 py-2">
                         {row.error ? (
@@ -489,6 +507,27 @@ export default function CSVImportPage() {
                   </select>
                 </div>
               )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  기본 카테고리 (선택)
+                </label>
+                <select
+                  value={defaultCategoryId}
+                  onChange={(e) => setDefaultCategoryId(e.target.value)}
+                  className="input"
+                >
+                  <option value="">CSV 값으로 자동 매칭 (미분류 가능)</option>
+                  {categories.filter(c => c.type === 'expense').map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  CSV 카테고리 컬럼 값이 DB와 일치하지 않으면 기본 카테고리가 사용됩니다
+                </p>
+              </div>
 
               <div className="flex items-center gap-2">
                 <input

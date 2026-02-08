@@ -3,8 +3,21 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { accountsAPI, householdAPI, Account, AccountCreateData } from '@/lib/api';
+import { accountsAPI, householdAPI, Account, AccountCreateData, AccountType } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+
+// 계좌 종류 정보
+const ACCOUNT_TYPES: { value: AccountType; label: string; icon: string; color: string }[] = [
+  { value: 'checking', label: '입출금', icon: '🏦', color: 'bg-blue-100 text-blue-700' },
+  { value: 'savings', label: '적금', icon: '🐷', color: 'bg-pink-100 text-pink-700' },
+  { value: 'deposit', label: '예금', icon: '💰', color: 'bg-yellow-100 text-yellow-700' },
+  { value: 'securities', label: '증권', icon: '📈', color: 'bg-green-100 text-green-700' },
+  { value: 'card', label: '카드', icon: '💳', color: 'bg-purple-100 text-purple-700' },
+];
+
+const getAccountTypeInfo = (accountType: AccountType) => {
+  return ACCOUNT_TYPES.find(t => t.value === accountType) || ACCOUNT_TYPES[0];
+};
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -19,6 +32,7 @@ export default function AccountsPage() {
     name: '',
     bank_name: '',
     type: 'personal',
+    account_type: 'checking',
     balance: undefined,
     is_shared_visible: false,
   });
@@ -97,6 +111,7 @@ export default function AccountsPage() {
         name: account.name,
         bank_name: account.bank_name || '',
         type: account.type,
+        account_type: account.account_type || 'checking',
         balance: account.balance ?? undefined,
         is_shared_visible: account.is_shared_visible,
       });
@@ -106,6 +121,7 @@ export default function AccountsPage() {
         name: '',
         bank_name: '',
         type: 'personal',
+        account_type: 'checking',
         balance: undefined,
         is_shared_visible: false,
       });
@@ -120,6 +136,7 @@ export default function AccountsPage() {
       name: '',
       bank_name: '',
       type: 'personal',
+      account_type: 'checking',
       balance: undefined,
       is_shared_visible: false,
     });
@@ -173,51 +190,62 @@ export default function AccountsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {myAccounts.map(account => (
-                <div
-                  key={account.id}
-                  className="card cursor-pointer hover:shadow-lg transition-shadow"
-                  onClick={() => handleAccountClick(account.id)}
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold">{account.name}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          account.type === 'shared' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
-                        }`}>
-                          {account.type === 'shared' ? '공동' : '개인'}
-                        </span>
-                        {account.is_shared_visible && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-700">
-                            공개
-                          </span>
-                        )}
+              {myAccounts.map(account => {
+                const typeInfo = getAccountTypeInfo(account.account_type);
+                return (
+                  <div
+                    key={account.id}
+                    className="card cursor-pointer hover:shadow-lg transition-shadow"
+                    onClick={() => handleAccountClick(account.id)}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="flex gap-3">
+                        <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-2xl flex-shrink-0">
+                          {typeInfo.icon}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{account.name}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded ${typeInfo.color}`}>
+                              {typeInfo.label}
+                            </span>
+                            {account.type === 'shared' && (
+                              <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                                공동
+                              </span>
+                            )}
+                            {account.is_shared_visible && account.type !== 'shared' && (
+                              <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-700">
+                                공개
+                              </span>
+                            )}
+                          </div>
+                          {account.bank_name && (
+                            <p className="text-sm text-gray-500">{account.bank_name}</p>
+                          )}
+                          <p className="text-lg font-bold mt-1">
+                            {formatCurrency(account.balance)}
+                          </p>
+                        </div>
                       </div>
-                      {account.bank_name && (
-                        <p className="text-sm text-gray-500">{account.bank_name}</p>
-                      )}
-                      <p className="text-lg font-bold mt-1">
-                        {formatCurrency(account.balance)}
-                      </p>
-                    </div>
-                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => openModal(account)}
-                        className="text-sm text-blue-600 hover:underline"
-                      >
-                        수정
-                      </button>
-                      <button
-                        onClick={() => handleDelete(account.id)}
-                        className="text-sm text-red-600 hover:underline"
-                      >
-                        삭제
-                      </button>
+                      <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => openModal(account)}
+                          className="text-sm text-blue-600 hover:underline"
+                        >
+                          수정
+                        </button>
+                        <button
+                          onClick={() => handleDelete(account.id)}
+                          className="text-sm text-red-600 hover:underline"
+                        >
+                          삭제
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
@@ -227,31 +255,39 @@ export default function AccountsPage() {
           <section>
             <h2 className="text-lg font-semibold mb-4">공유된 계좌</h2>
             <div className="space-y-3">
-              {sharedAccounts.map(account => (
-                <div
-                  key={account.id}
-                  className="card bg-gray-50 cursor-pointer hover:shadow-lg transition-shadow"
-                  onClick={() => handleAccountClick(account.id)}
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold">{account.name}</span>
-                        <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700">
-                          공동
-                        </span>
+              {sharedAccounts.map(account => {
+                const typeInfo = getAccountTypeInfo(account.account_type);
+                return (
+                  <div
+                    key={account.id}
+                    className="card bg-gray-50 cursor-pointer hover:shadow-lg transition-shadow"
+                    onClick={() => handleAccountClick(account.id)}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="flex gap-3">
+                        <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-2xl flex-shrink-0">
+                          {typeInfo.icon}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{account.name}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded ${typeInfo.color}`}>
+                              {typeInfo.label}
+                            </span>
+                          </div>
+                          {account.bank_name && (
+                            <p className="text-sm text-gray-500">{account.bank_name}</p>
+                          )}
+                          <p className="text-sm text-gray-500">소유자: {account.owner_name}</p>
+                          <p className="text-lg font-bold mt-1">
+                            {formatCurrency(account.balance)}
+                          </p>
+                        </div>
                       </div>
-                      {account.bank_name && (
-                        <p className="text-sm text-gray-500">{account.bank_name}</p>
-                      )}
-                      <p className="text-sm text-gray-500">소유자: {account.owner_name}</p>
-                      <p className="text-lg font-bold mt-1">
-                        {formatCurrency(account.balance)}
-                      </p>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}
@@ -294,7 +330,30 @@ export default function AccountsPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  계좌 유형
+                  계좌 종류
+                </label>
+                <div className="grid grid-cols-5 gap-2">
+                  {ACCOUNT_TYPES.map((at) => (
+                    <button
+                      key={at.value}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, account_type: at.value })}
+                      className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-colors ${
+                        formData.account_type === at.value
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <span className="text-xl">{at.icon}</span>
+                      <span className="text-xs font-medium">{at.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  소유 유형
                 </label>
                 <select
                   value={formData.type}

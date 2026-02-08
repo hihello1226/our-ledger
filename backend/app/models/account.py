@@ -19,6 +19,9 @@ class Account(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)  # "국민은행 주거래"
     bank_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     type: Mapped[str] = mapped_column(String(20), nullable=False)  # "personal" | "shared"
+    account_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="checking"
+    )  # "checking" | "savings" | "deposit" | "securities" | "card"
     balance: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # KRW integer
     is_shared_visible: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -102,6 +102,7 @@ export interface Entry {
   occurred_at: string | null;
   category_id: string | null;
   category_name: string | null;
+  subcategory: string | null;
   memo: string | null;
   payer_member_id: string;
   payer_name: string | null;
@@ -208,11 +209,19 @@ export const entriesAPI = {
   delete: (id: string) =>
     fetchAPI(`/api/entries/${id}`, { method: 'DELETE' }),
 
+  bulkDelete: (ids: string[]) =>
+    fetchAPI<{ deleted_count: number; message: string }>('/api/entries/bulk', {
+      method: 'DELETE',
+      body: { entry_ids: ids },
+    }),
+
   getCategories: () =>
     fetchAPI<Array<{ id: string; name: string; type: string; color?: string | null; icon?: string | null }>>('/api/entries/categories'),
 };
 
 // Account types
+export type AccountType = 'checking' | 'savings' | 'deposit' | 'securities' | 'card';
+
 export interface Account {
   id: string;
   owner_user_id: string;
@@ -220,6 +229,7 @@ export interface Account {
   name: string;
   bank_name: string | null;
   type: string;
+  account_type: AccountType;
   balance: number | null;
   is_shared_visible: boolean;
   created_at: string;
@@ -231,6 +241,7 @@ export interface AccountCreateData {
   name: string;
   bank_name?: string;
   type: string;
+  account_type?: AccountType;
   balance?: number;
   is_shared_visible?: boolean;
   household_id?: string;
@@ -398,6 +409,7 @@ export const importAPI = {
     file_id: string;
     column_mapping: CSVColumnMapping;
     default_account_id?: string;
+    default_category_id?: string;
     default_payer_member_id: string;
     skip_duplicates?: boolean;
   }) =>

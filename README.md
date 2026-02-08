@@ -4,6 +4,19 @@
 
 ## 버전
 
+- **v1.6.0** (2026-02) - 카테고리 개선 & 선택 삭제
+  - 미분류 필터 추가 (category_id가 NULL인 거래 필터링)
+  - 거래 항목에 소분류 표시 (식비 > 외식)
+  - 임포트 미리보기에 분류 컬럼 추가
+  - 선택 삭제 기능 (일괄 삭제)
+  - 스와이프 UI 개선
+
+- **v1.5.0** (2026-02) - UI/UX 개선
+  - 무한 스크롤 적용
+  - 거래 목록 뷰 모드 (일별/주별/월별/캘린더)
+  - 카테고리 아이콘 표시
+  - 계좌 유형 구분 (입출금/저축/예적금/증권/카드)
+
 - **v1.1.0** (2024-02) - 계좌 관리 및 데이터 연동
   - 계좌 관리 (개인/공동 계좌)
   - 이체 거래 지원
@@ -79,6 +92,10 @@
 - **결제자 지정**: 실제 결제한 멤버 선택
 - **시간 기록**: 날짜 + 시간 입력 (v1.1)
 - **월별/계좌별 필터링**: 다양한 조건으로 조회
+- **미분류 필터**: 카테고리가 없는 거래만 조회 (v1.6)
+- **소분류 표시**: 대분류 > 소분류 형태로 표시 (v1.6)
+- **선택 삭제**: 여러 거래 일괄 삭제 (v1.6)
+- **스와이프 UI**: 좌/우 스와이프로 편집/삭제 (v1.5)
 
 ### 5. 카테고리
 - **기본 카테고리** (12개):
@@ -103,7 +120,7 @@
 ### 8. 데이터 Import (v1.1)
 - **CSV Import**: 은행 내역 CSV 파일 Import
   - 컬럼 자동 감지 및 매핑
-  - 미리보기 기능
+  - 미리보기 기능 (분류 컬럼 포함 v1.6)
   - 중복 검사 및 건너뛰기
 - **Google Sheets 연동**:
   - 서비스 계정 인증
@@ -164,6 +181,7 @@ entries (거래)
 ├── date
 ├── occurred_at [v1.1]
 ├── category_id (FK → categories)
+├── subcategory [v1.6: 소분류]
 ├── memo
 ├── payer_member_id (FK → household_members)
 ├── shared (boolean, 공동 지출 여부)
@@ -269,11 +287,12 @@ docker-compose exec backend python -m scripts.seed
 ### Entries
 | Method | Endpoint | 설명 |
 |--------|----------|------|
-| GET | `/api/entries` | 거래 목록 (필터: month, type, account_ids) |
+| GET | `/api/entries` | 거래 목록 (필터: month, type, account_ids, category_ids) |
 | POST | `/api/entries` | 거래 생성 |
 | GET | `/api/entries/{id}` | 거래 상세 |
 | PUT | `/api/entries/{id}` | 거래 수정 |
 | DELETE | `/api/entries/{id}` | 거래 삭제 |
+| DELETE | `/api/entries/bulk` | 거래 일괄 삭제 (v1.6) |
 | GET | `/api/entries/categories` | 카테고리 목록 |
 
 ### Summary & Settlement
@@ -356,6 +375,19 @@ our-ledger/
 │       │   ├── accounts/         [v1.1]
 │       │   ├── import/csv/       [v1.1]
 │       │   └── settings/integrations/google-sheets/ [v1.1]
+│       ├── components/   # 재사용 컴포넌트
+│       │   ├── entries/          [v1.5+]
+│       │   │   ├── SwipeableEntryItem.tsx
+│       │   │   ├── BulkActionBar.tsx  [v1.6]
+│       │   │   ├── EntryListView.tsx
+│       │   │   ├── DailyGroupView.tsx
+│       │   │   ├── WeeklyGroupView.tsx
+│       │   │   └── CalendarView.tsx
+│       │   ├── filters/
+│       │   └── ui/
+│       ├── hooks/        # 커스텀 훅 [v1.5+]
+│       │   ├── useInfiniteEntries.ts
+│       │   └── useBulkSelection.ts  [v1.6]
 │       └── lib/          # API 클라이언트, Auth Context
 ├── docker-compose.yml
 └── README.md

@@ -24,6 +24,9 @@ interface EntryListViewProps {
   onMonthChange: (month: string) => void;
   onEditEntry: (entry: Entry) => void;
   onDeleteEntry: (id: string) => void;
+  isSelectionMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
 }
 
 export default function EntryListView({
@@ -35,6 +38,9 @@ export default function EntryListView({
   onMonthChange,
   onEditEntry,
   onDeleteEntry,
+  isSelectionMode = false,
+  selectedIds = new Set(),
+  onToggleSelect,
 }: EntryListViewProps) {
   const viewModes: { key: ViewMode; label: string }[] = [
     { key: 'daily', label: '일별' },
@@ -68,6 +74,9 @@ export default function EntryListView({
           categories={categories}
           onEditEntry={onEditEntry}
           onDeleteEntry={onDeleteEntry}
+          isSelectionMode={isSelectionMode}
+          selectedIds={selectedIds}
+          onToggleSelect={onToggleSelect}
         />
       )}
       {viewMode === 'weekly' && (
@@ -76,6 +85,9 @@ export default function EntryListView({
           categories={categories}
           onEditEntry={onEditEntry}
           onDeleteEntry={onDeleteEntry}
+          isSelectionMode={isSelectionMode}
+          selectedIds={selectedIds}
+          onToggleSelect={onToggleSelect}
         />
       )}
       {viewMode === 'monthly' && (
@@ -86,6 +98,9 @@ export default function EntryListView({
           onMonthChange={onMonthChange}
           onEditEntry={onEditEntry}
           onDeleteEntry={onDeleteEntry}
+          isSelectionMode={isSelectionMode}
+          selectedIds={selectedIds}
+          onToggleSelect={onToggleSelect}
         />
       )}
     </div>

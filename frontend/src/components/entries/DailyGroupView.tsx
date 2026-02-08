@@ -2,7 +2,7 @@
 
 import { Entry } from '@/lib/api';
 import EntryGroupHeader from './EntryGroupHeader';
-import EntryItem from './EntryItem';
+import SwipeableEntryItem from './SwipeableEntryItem';
 
 interface Category {
   id: string;
@@ -17,6 +17,9 @@ interface DailyGroupViewProps {
   categories: Category[];
   onEditEntry: (entry: Entry) => void;
   onDeleteEntry: (id: string) => void;
+  isSelectionMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
 }
 
 interface DailyGroup {
@@ -32,6 +35,9 @@ export default function DailyGroupView({
   categories,
   onEditEntry,
   onDeleteEntry,
+  isSelectionMode = false,
+  selectedIds = new Set(),
+  onToggleSelect,
 }: DailyGroupViewProps) {
   // Group entries by date
   const groupedEntries = entries.reduce<Record<string, Entry[]>>((acc, entry) => {
@@ -96,12 +102,15 @@ export default function DailyGroupView({
           />
           <div>
             {group.entries.map((entry) => (
-              <EntryItem
+              <SwipeableEntryItem
                 key={entry.id}
                 entry={entry}
                 categories={categories}
                 onEdit={onEditEntry}
                 onDelete={onDeleteEntry}
+                isSelectionMode={isSelectionMode}
+                isSelected={selectedIds.has(entry.id)}
+                onToggleSelect={onToggleSelect}
               />
             ))}
           </div>
