@@ -24,8 +24,10 @@ class Entry(Base):
     category_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("categories.id"), nullable=True
     )
+    subcategory_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("subcategories.id"), nullable=True
+    )
     memo: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    subcategory: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 소분류
     payer_member_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("household_members.id"), nullable=False
     )
@@ -50,6 +52,7 @@ class Entry(Base):
     household: Mapped["Household"] = relationship("Household", back_populates="entries")
     created_by_user: Mapped["User"] = relationship("User", back_populates="entries_created")
     category: Mapped[Optional["Category"]] = relationship("Category", back_populates="entries")
+    subcategory_rel: Mapped[Optional["Subcategory"]] = relationship("Subcategory", back_populates="entries")
     payer_member: Mapped["HouseholdMember"] = relationship(
         "HouseholdMember", back_populates="entries_as_payer"
     )

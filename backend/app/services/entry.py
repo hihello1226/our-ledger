@@ -342,6 +342,7 @@ def create_entry(
         date=entry_data.date,
         occurred_at=occurred_at,
         category_id=entry_data.category_id,
+        subcategory_id=entry_data.subcategory_id,
         memo=entry_data.memo,
         payer_member_id=entry_data.payer_member_id,
         shared=entry_data.shared,

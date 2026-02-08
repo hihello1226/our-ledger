@@ -102,7 +102,8 @@ export interface Entry {
   occurred_at: string | null;
   category_id: string | null;
   category_name: string | null;
-  subcategory: string | null;
+  subcategory_id: string | null;
+  subcategory_name: string | null;
   memo: string | null;
   payer_member_id: string;
   payer_name: string | null;
@@ -131,6 +132,7 @@ export interface EntryCreateData {
   date: string;
   occurred_at?: string;
   category_id?: string;
+  subcategory_id?: string;
   memo?: string;
   payer_member_id: string;
   shared?: boolean;
@@ -491,4 +493,64 @@ export const externalSourcesAPI = {
     fetchAPI<SyncExportResponse>(`/api/external-sources/${id}/sync-export`, {
       method: 'POST',
     }),
+};
+
+// Category types
+export interface Subcategory {
+  id: string;
+  category_id: string;
+  name: string;
+  sort_order: number;
+}
+
+export interface Category {
+  id: string;
+  household_id: string | null;
+  name: string;
+  type: string;
+  sort_order: number;
+  color: string | null;
+  icon: string | null;
+  subcategories: Subcategory[];
+}
+
+export interface CategoryCreateData {
+  name: string;
+  type: string;
+  color?: string;
+  icon?: string;
+}
+
+export interface SubcategoryCreateData {
+  name: string;
+  category_id: string;
+}
+
+// Categories API
+export const categoriesAPI = {
+  list: () => fetchAPI<Category[]>('/api/categories'),
+
+  create: (data: CategoryCreateData) =>
+    fetchAPI<Category>('/api/categories', { method: 'POST', body: data }),
+
+  update: (id: string, data: Partial<CategoryCreateData>) =>
+    fetchAPI<Category>(`/api/categories/${id}`, { method: 'PUT', body: data }),
+
+  delete: (id: string) =>
+    fetchAPI(`/api/categories/${id}`, { method: 'DELETE' }),
+
+  createSubcategory: (categoryId: string, data: { name: string }) =>
+    fetchAPI<Subcategory>(`/api/categories/${categoryId}/subcategories`, {
+      method: 'POST',
+      body: { ...data, category_id: categoryId },
+    }),
+
+  updateSubcategory: (subcategoryId: string, data: { name?: string; sort_order?: number }) =>
+    fetchAPI<Subcategory>(`/api/categories/subcategories/${subcategoryId}`, {
+      method: 'PUT',
+      body: data,
+    }),
+
+  deleteSubcategory: (subcategoryId: string) =>
+    fetchAPI(`/api/categories/subcategories/${subcategoryId}`, { method: 'DELETE' }),
 };

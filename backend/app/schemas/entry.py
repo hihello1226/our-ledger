@@ -12,6 +12,7 @@ class EntryBase(BaseModel):
     date: date_type
     occurred_at: Optional[datetime] = None  # New: for time-based sorting
     category_id: Optional[UUID] = None
+    subcategory_id: Optional[UUID] = None  # 소분류 ID
     memo: Optional[str] = None
     payer_member_id: UUID
     shared: bool = False
@@ -44,6 +45,7 @@ class EntryUpdate(BaseModel):
     date: Optional[date_type] = None
     occurred_at: Optional[datetime] = None
     category_id: Optional[UUID] = None
+    subcategory_id: Optional[UUID] = None
     memo: Optional[str] = None
     payer_member_id: Optional[UUID] = None
     shared: Optional[bool] = None
@@ -62,7 +64,9 @@ class EntryResponse(BaseModel):
     date: date_type
     occurred_at: Optional[datetime] = None
     category_id: Optional[UUID] = None
-    subcategory: Optional[str] = None  # 소분류
+    category_name: Optional[str] = None
+    subcategory_id: Optional[UUID] = None
+    subcategory_name: Optional[str] = None
     memo: Optional[str] = None
     payer_member_id: UUID
     shared: bool
@@ -71,7 +75,6 @@ class EntryResponse(BaseModel):
     transfer_to_account_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
-    category_name: Optional[str] = None
     payer_name: Optional[str] = None
     account_name: Optional[str] = None
     transfer_from_account_name: Optional[str] = None

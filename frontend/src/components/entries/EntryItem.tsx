@@ -118,8 +118,8 @@ export default function EntryItem({
         <div className="flex items-center gap-2">
           <span className="font-medium text-gray-900 truncate">
             {entry.type === 'transfer' ? getTypeLabel() : (category?.name || '미분류')}
-            {entry.subcategory && entry.type !== 'transfer' && (
-              <span className="text-gray-500 font-normal"> &gt; {entry.subcategory}</span>
+            {entry.subcategory_name && entry.type !== 'transfer' && (
+              <span className="text-gray-500 font-normal"> &gt; {entry.subcategory_name}</span>
             )}
           </span>
           {entry.shared && (

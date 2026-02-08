@@ -40,6 +40,9 @@ Thumbs.db
 # Local docker compose env
 .env.docker
 
+# Local DB data
+data/
+
 # Personal data files (XLS, CSV containing personal financial data)
 documents/*.xls
 documents/*.xlsx

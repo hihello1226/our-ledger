@@ -5,6 +5,7 @@ from app.api import (
     auth_router,
     household_router,
     entries_router,
+    categories_router,
     summary_router,
     settlement_router,
     accounts_router,
@@ -38,6 +39,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(household_router)
 app.include_router(entries_router)
+app.include_router(categories_router)
 app.include_router(summary_router)
 app.include_router(settlement_router)
 app.include_router(accounts_router)

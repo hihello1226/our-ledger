@@ -80,6 +80,14 @@ export default function CSVImportPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // 먼저 가구 정보 확인
+        const household = await householdAPI.get();
+        if (!household) {
+          // 가구가 없으면 온보딩으로 이동
+          router.push('/onboarding');
+          return;
+        }
+
         const [membersData, accountsData, categoriesData] = await Promise.all([
           householdAPI.getMembers(),
           accountsAPI.list(),
@@ -95,13 +103,17 @@ export default function CSVImportPage() {
         }
       } catch (err) {
         console.error(err);
+        // 인증 에러인 경우 로그인 페이지로
+        if (err instanceof Error && err.message.includes('401')) {
+          router.push('/login');
+        }
       }
     };
 
     if (user) {
       fetchData();
     }
-  }, [user]);
+  }, [user, router]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];

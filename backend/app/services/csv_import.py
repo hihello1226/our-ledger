@@ -6,7 +6,7 @@ from datetime import datetime, date
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from app.models import Entry, Category, Account
+from app.models import Entry, Category, Subcategory, Account
 from app.schemas.external_source import (
     CSVColumnMapping,
     CSVPreviewRow,
@@ -396,58 +396,67 @@ def execute_import(
     categories = db.query(Category).filter(
         (Category.household_id == None) | (Category.household_id == household_id)
     ).all()
-    category_map = {c.name.lower(): c.id for c in categories}
+    category_map = {c.name.lower(): c for c in categories}  # name -> Category object
 
-    # Build category aliases for fuzzy matching
-    category_aliases = {
-        # 식비 관련
-        "음식": "식비", "식사": "식비", "밥": "식비", "점심": "식비", "저녁": "식비",
-        "아침": "식비", "배달": "식비", "외식": "식비", "식당": "식비",
-        # 교통비 관련
-        "교통": "교통비", "버스": "교통비", "지하철": "교통비", "택시": "교통비",
-        "기차": "교통비", "ktx": "교통비", "고속버스": "교통비", "주유": "교통비",
-        # 주거비 관련
-        "주거": "주거비", "월세": "주거비", "관리비": "주거비", "전기세": "주거비",
-        "수도세": "주거비", "가스비": "주거비", "인터넷": "주거비",
-        # 통신비 관련
-        "통신": "통신비", "휴대폰": "통신비", "핸드폰": "통신비", "전화": "통신비",
-        # 의료비 관련
-        "의료": "의료비", "병원": "의료비", "약국": "의료비", "약": "의료비", "건강": "의료비",
-        # 문화/여가 관련
-        "문화": "문화/여가", "여가": "문화/여가", "영화": "문화/여가", "공연": "문화/여가",
-        "취미": "문화/여가", "운동": "문화/여가", "헬스": "문화/여가", "게임": "문화/여가",
-        # 쇼핑 관련
-        "쇼핑": "쇼핑", "의류": "쇼핑", "옷": "쇼핑", "마트": "쇼핑", "편의점": "쇼핑",
-        # 교육 관련
-        "교육": "교육비", "학원": "교육비", "책": "교육비", "강의": "교육비",
-        # 급여 관련
-        "급여": "급여", "월급": "급여", "보너스": "급여", "상여": "급여",
-        # 기타
-        "기타": "기타", "미분류": "기타",
-    }
+    # Get subcategories for matching
+    subcategory_map = {}  # (category_id, name_lower) -> Subcategory object
+    for cat in categories:
+        subcats = db.query(Subcategory).filter(Subcategory.category_id == cat.id).all()
+        for subcat in subcats:
+            subcategory_map[(cat.id, subcat.name.lower())] = subcat
 
-    def find_category_id(name: str) -> uuid.UUID | None:
-        """Find category ID with fuzzy matching"""
+    def find_or_create_category(name: str, entry_type: str) -> uuid.UUID | None:
+        """Find or create category"""
         if not name:
             return None
-        name_lower = name.lower().strip()
+        name_clean = name.strip()
+        name_lower = name_clean.lower()
 
         # Exact match first
         if name_lower in category_map:
-            return category_map[name_lower]
+            return category_map[name_lower].id
 
-        # Try alias match
-        if name_lower in category_aliases:
-            alias_target = category_aliases[name_lower].lower()
-            if alias_target in category_map:
-                return category_map[alias_target]
+        # Create new category
+        cat_type = "income" if entry_type == "income" else "expense"
+        max_order = db.query(Category).filter(
+            Category.type == cat_type,
+            (Category.household_id == None) | (Category.household_id == household_id),
+        ).count()
 
-        # Try partial match (category name contains the search term or vice versa)
-        for cat_name, cat_id in category_map.items():
-            if name_lower in cat_name or cat_name in name_lower:
-                return cat_id
+        new_category = Category(
+            household_id=household_id,
+            name=name_clean,
+            type=cat_type,
+            sort_order=max_order,
+        )
+        db.add(new_category)
+        db.flush()
+        category_map[name_lower] = new_category
+        return new_category.id
 
-        return None
+    def find_or_create_subcategory(category_id: uuid.UUID, name: str) -> uuid.UUID | None:
+        """Find or create subcategory"""
+        if not name or not category_id:
+            return None
+        name_clean = name.strip()
+        name_lower = name_clean.lower()
+
+        key = (category_id, name_lower)
+        if key in subcategory_map:
+            return subcategory_map[key].id
+
+        # Create new subcategory
+        max_order = db.query(Subcategory).filter(Subcategory.category_id == category_id).count()
+
+        new_subcategory = Subcategory(
+            category_id=category_id,
+            name=name_clean,
+            sort_order=max_order,
+        )
+        db.add(new_subcategory)
+        db.flush()
+        subcategory_map[key] = new_subcategory
+        return new_subcategory.id
 
     # Get existing accounts for matching (and track created ones)
     existing_accounts = db.query(Account).filter(
@@ -493,20 +502,23 @@ def execute_import(
                     continue
                 existing_hashes.add(row_hash)
 
-            # Find category with fuzzy matching
+            # Find or create category
             category_id = None
             if column_mapping.category and row.get(column_mapping.category):
                 category_name = str(row.get(column_mapping.category, "")).strip()
-                category_id = find_category_id(category_name)
+                if category_name:
+                    category_id = find_or_create_category(category_name, entry_type)
 
-            # Use default category as fallback if no match found
+            # Use default category as fallback if no category found
             if category_id is None and default_category_id:
                 category_id = default_category_id
 
-            # Get subcategory
-            subcategory = None
+            # Find or create subcategory
+            subcategory_id = None
             if column_mapping.subcategory and row.get(column_mapping.subcategory):
-                subcategory = str(row.get(column_mapping.subcategory, "")).strip() or None
+                subcategory_name = str(row.get(column_mapping.subcategory, "")).strip()
+                if subcategory_name and category_id:
+                    subcategory_id = find_or_create_subcategory(category_id, subcategory_name)
 
             # Find or create account
             account_id = default_account_id
@@ -539,7 +551,7 @@ def execute_import(
                 date=parsed_date,
                 occurred_at=datetime.combine(parsed_date, datetime.min.time()),
                 category_id=category_id,
-                subcategory=subcategory,
+                subcategory_id=subcategory_id,
                 memo=memo,
                 payer_member_id=default_payer_member_id,
                 shared=False,

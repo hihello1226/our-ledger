@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { entriesAPI, householdAPI, accountsAPI, Entry, Account, EntryCreateData, EntryListParams } from '@/lib/api';
+import { entriesAPI, householdAPI, accountsAPI, categoriesAPI, Entry, Account, EntryCreateData, EntryListParams, Category, Subcategory } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import FilterBar, { FilterState } from '@/components/filters/FilterBar';
 import EntrySummary from '@/components/EntrySummary';
@@ -13,13 +13,7 @@ import BulkActionBar from '@/components/entries/BulkActionBar';
 import { useInfiniteEntries } from '@/hooks/useInfiniteEntries';
 import { useBulkSelection } from '@/hooks/useBulkSelection';
 
-type Category = {
-  id: string;
-  name: string;
-  type: string;
-  color?: string | null;
-  icon?: string | null;
-};
+// Category 타입은 @/lib/api에서 import
 
 type Member = {
   id: string;
@@ -134,6 +128,7 @@ export default function EntriesPage() {
   const [formDate, setFormDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [formTime, setFormTime] = useState('');
   const [formCategoryId, setFormCategoryId] = useState('');
+  const [formSubcategoryId, setFormSubcategoryId] = useState('');
   const [formMemo, setFormMemo] = useState('');
   const [formPayerMemberId, setFormPayerMemberId] = useState('');
   const [formShared, setFormShared] = useState(false);
@@ -153,11 +148,11 @@ export default function EntriesPage() {
     const fetchData = async () => {
       try {
         const [categoriesData, membersData, accountsData] = await Promise.all([
-          entriesAPI.getCategories(),
+          categoriesAPI.list(),
           householdAPI.getMembers(),
           accountsAPI.list(),
         ]);
-        setCategories(categoriesData);
+        setCategories(categoriesData as Category[]);
         setMembers(membersData);
         setAccounts(accountsData);
 
@@ -185,6 +180,7 @@ export default function EntriesPage() {
     setFormDate(new Date().toISOString().split('T')[0]);
     setFormTime('');
     setFormCategoryId('');
+    setFormSubcategoryId('');
     setFormMemo('');
     setFormShared(false);
     setFormAccountId('');
@@ -212,6 +208,7 @@ export default function EntriesPage() {
         setFormTime('');
       }
       setFormCategoryId(entry.category_id || '');
+      setFormSubcategoryId(entry.subcategory_id || '');
       setFormMemo(entry.memo || '');
       setFormPayerMemberId(entry.payer_member_id);
       setFormShared(entry.shared);
@@ -257,6 +254,7 @@ export default function EntriesPage() {
         date: formDate,
         occurred_at,
         category_id: formCategoryId || undefined,
+        subcategory_id: formSubcategoryId || undefined,
         memo: formMemo || undefined,
         payer_member_id: formPayerMemberId,
         shared: formShared,
@@ -666,16 +664,38 @@ export default function EntriesPage() {
               {/* Category (only for income/expense) */}
               {formType !== 'transfer' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">카테고리</label>
+                  <label className="block text-sm font-medium text-gray-700">대분류</label>
                   <select
                     value={formCategoryId}
-                    onChange={(e) => setFormCategoryId(e.target.value)}
+                    onChange={(e) => {
+                      setFormCategoryId(e.target.value);
+                      setFormSubcategoryId(''); // 대분류 변경 시 소분류 초기화
+                    }}
                     className="input mt-1"
                   >
                     <option value="">선택 안함</option>
                     {filteredCategories.map((cat) => (
                       <option key={cat.id} value={cat.id}>
                         {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Subcategory (only when category is selected) */}
+              {formType !== 'transfer' && formCategoryId && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">소분류</label>
+                  <select
+                    value={formSubcategoryId}
+                    onChange={(e) => setFormSubcategoryId(e.target.value)}
+                    className="input mt-1"
+                  >
+                    <option value="">선택 안함</option>
+                    {(categories.find(c => c.id === formCategoryId)?.subcategories || []).map((sub) => (
+                      <option key={sub.id} value={sub.id}>
+                        {sub.name}
                       </option>
                     ))}
                   </select>
